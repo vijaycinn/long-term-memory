@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+*.db
+memory-context.md
+memory-backup-*.json
+seed_memory.py
