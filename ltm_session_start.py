@@ -19,10 +19,13 @@ from pathlib import Path
 DEFAULT_DB = os.path.join(
     os.environ.get("USERPROFILE", str(Path.home())), ".copilot", "memory.db"
 )
-INSTRUCTIONS_DIR = Path(
+# Copilot CLI reads user-level instructions from this single file:
+OUTPUT_FILE = Path(
     os.environ.get("USERPROFILE", str(Path.home()))
-) / ".copilot" / "instructions"
-OUTPUT_FILE = INSTRUCTIONS_DIR / "ltm.instructions.md"
+) / ".copilot" / "copilot-instructions.md"
+
+LTM_START_MARKER = "<!-- LTM-START -->"
+LTM_END_MARKER = "<!-- LTM-END -->"
 
 
 # ── DB helpers ────────────────────────────────────────────────────────
@@ -360,10 +363,6 @@ def generate_instructions(
         return content
 
     header = [
-        "---",
-        'applyTo: "**"',
-        "---",
-        "",
         "# Long-Term Memory Context",
         f"<!-- Generated: {_now_utc()} -->",
         "",
@@ -381,10 +380,6 @@ def generate_instructions(
 
 def _minimal_instructions(msg: str) -> str:
     return "\n".join([
-        "---",
-        'applyTo: "**"',
-        "---",
-        "",
         "# Long-Term Memory",
         "",
         f"> ⚠️ {msg}",
@@ -393,8 +388,26 @@ def _minimal_instructions(msg: str) -> str:
 
 
 def _write_file(path: Path, content: str) -> None:
+    """Merge LTM content into copilot-instructions.md, preserving other sections."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    existing = ""
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+
+    tagged = f"{LTM_START_MARKER}\n{content}\n{LTM_END_MARKER}"
+
+    if LTM_START_MARKER in existing and LTM_END_MARKER in existing:
+        # Replace the existing LTM block
+        before = existing[: existing.index(LTM_START_MARKER)]
+        after = existing[existing.index(LTM_END_MARKER) + len(LTM_END_MARKER) :]
+        merged = before.rstrip("\n") + "\n\n" + tagged + after.lstrip("\n")
+    elif existing.strip():
+        # Append LTM block after existing content
+        merged = existing.rstrip("\n") + "\n\n" + tagged + "\n"
+    else:
+        merged = tagged + "\n"
+
+    path.write_text(merged, encoding="utf-8")
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────

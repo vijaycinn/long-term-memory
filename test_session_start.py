@@ -209,9 +209,9 @@ class TestSessionStart(unittest.TestCase):
         self.assertTrue(self.output_path.exists())
 
         text = self.output_path.read_text(encoding="utf-8")
-        # YAML frontmatter
-        self.assertTrue(text.startswith("---\n"))
-        self.assertIn('applyTo: "**"', text)
+        # LTM markers present
+        self.assertIn("<!-- LTM-START -->", text)
+        self.assertIn("<!-- LTM-END -->", text)
         # Section 1: Identity
         self.assertIn("Identity", text)
         self.assertIn("Vijay Cinn", text)
@@ -278,20 +278,24 @@ class TestSessionStart(unittest.TestCase):
         # But no session context section
         self.assertNotIn("Recent Session Context", content)
 
-    # ── Test: YAML frontmatter correct ────────────────────────────────
+    # ── Test: preserves existing content in copilot-instructions.md ───
 
-    def test_yaml_frontmatter(self):
+    def test_preserves_existing_content(self):
         _make_memory_db(self.memory_path)
+        # Pre-populate the output file with existing instructions
+        self.output_path.write_text("# WorkIQ preferences\nUse WorkIQ first.\n", encoding="utf-8")
         generate_instructions(
             {"cwd": "C:\\workspace\\agency"},
             memory_db=self.memory_path,
             output_path=self.output_path,
         )
         text = self.output_path.read_text(encoding="utf-8")
-        lines = text.split("\n")
-        self.assertEqual(lines[0], "---")
-        self.assertEqual(lines[1], 'applyTo: "**"')
-        self.assertEqual(lines[2], "---")
+        # Original content preserved
+        self.assertIn("WorkIQ preferences", text)
+        self.assertIn("Use WorkIQ first.", text)
+        # LTM content appended
+        self.assertIn("<!-- LTM-START -->", text)
+        self.assertIn("Identity", text)
 
     # ── Test: idempotent (multiple runs produce valid output) ─────────
 
@@ -305,6 +309,10 @@ class TestSessionStart(unittest.TestCase):
         # Both should produce valid instructions (timestamps may differ)
         self.assertIn("Identity", c1)
         self.assertIn("Identity", c2)
+        # File should contain exactly ONE LTM block (not duplicated)
+        text = self.output_path.read_text(encoding="utf-8")
+        self.assertEqual(text.count("<!-- LTM-START -->"), 1)
+        self.assertEqual(text.count("<!-- LTM-END -->"), 1)
 
     # ── Test: output stays concise ────────────────────────────────────
 
