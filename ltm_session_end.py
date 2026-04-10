@@ -209,11 +209,25 @@ def process_session(hook_input, *, memory_db=None, store_path=None):
     mc.commit(); mc.close()
     return {"session_id": sid, "facts": fact_n, "entities": ent_n, "patterns": pats}
 
+def refresh_ltm_instructions(hook_input):
+    """Re-generate the LTM block in copilot-instructions.md so the NEXT session loads it."""
+    try:
+        _this_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, _this_dir)
+        from ltm_session_start import generate_instructions
+        generate_instructions(hook_input)
+    except Exception:
+        pass  # best-effort; sessionStart hook is the backup
+
+
 def main():
     try: hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, EOFError): hook_input = {}
     try: process_session(hook_input)
     except Exception: pass  # hooks must never crash
+    # After extracting new facts/entities, refresh the LTM instructions file
+    # so the NEXT session starts with up-to-date memory context already baked in.
+    refresh_ltm_instructions(hook_input)
 
 if __name__ == "__main__":
     main()

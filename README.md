@@ -8,14 +8,14 @@ This package gives Copilot CLI a shared SQLite-backed memory that is automatical
 - **Auto-injected instructions**: `C:\Users\<you>\.copilot\copilot-instructions.md` (LTM block merged via markers)
 - **Legacy bridge**: `C:\Users\<you>\.copilot\memory-context.md` (for PowerShell `Matrix-Load`)
 
-Think of `memory.db` as the knowledge store. At every session start, the `sessionStart` hook reads it and merges a compact summary into `copilot-instructions.md` — the file Copilot CLI loads as user-level custom instructions. Your identity, active topics, high-priority facts, and recent patterns are available from the first turn.
+Think of `memory.db` as the knowledge store. At every session **end**, the `sessionEnd` hook extracts new knowledge and then refreshes the LTM block in `copilot-instructions.md`. When the **next** session starts, Copilot CLI reads that file before any hooks fire — so your identity, active topics, high-priority facts, and recent patterns are available from the very first turn. The `sessionStart` hook also refreshes the block as a backup, but the critical write happens at session end to avoid a timing race with file loading.
 
 ---
 
 ## What it does
 
-- **Auto-injects memory at session start** via a `sessionStart` hook — no manual loading needed
-- **Auto-captures patterns at session end** via a `sessionEnd` hook
+- **Auto-injects memory at session start** — the LTM block is pre-baked into `copilot-instructions.md` by the previous session's `sessionEnd` hook, so it's loaded before any hooks fire
+- **Auto-captures patterns at session end** via a `sessionEnd` hook, then refreshes the LTM instructions for the next session
 - Stores durable facts, preferences, identities, accounts, and snapshots in SQLite
 - Merges LTM context into `~/.copilot/copilot-instructions.md` using `<!-- LTM-START -->` / `<!-- LTM-END -->` markers, preserving any other instructions in that file
 - Supports full-text search across memory
@@ -30,7 +30,7 @@ Think of `memory.db` as the knowledge store. At every session start, the `sessio
 |------|---------|
 | `init-memory.sql` | Initializes the SQLite schema and FTS tables |
 | `ltm_session_start.py` | **sessionStart hook** — reads `memory.db` and merges LTM context into `copilot-instructions.md` |
-| `ltm_session_end.py` | **sessionEnd hook** — captures session patterns and extracts facts |
+| `ltm_session_end.py` | **sessionEnd hook** — captures session patterns, extracts facts, and refreshes the LTM block in `copilot-instructions.md` for the next session |
 | `ltm_lint.py` | Validates memory DB integrity and flags stale or orphaned data |
 | `ltm_wiki_export.py` | Exports memory topics/facts as a wiki-friendly markdown tree |
 | `memory_driver.py` | Python backend that reads JSON ops from stdin and writes JSON results |
@@ -98,17 +98,36 @@ Search-Memory -Query "territories"
 
 Copilot CLI reads user-level custom instructions from **one file**: `~/.copilot/copilot-instructions.md`.
 
-The `sessionStart` hook:
-1. Reads `memory.db` (identity, active topics, high-priority facts, pending work, patterns, recent sessions, known entities)
-2. Builds a compact markdown summary
-3. Merges it into `copilot-instructions.md` between `<!-- LTM-START -->` and `<!-- LTM-END -->` markers
-4. Preserves any existing content outside those markers (e.g., WorkIQ preferences, custom rules)
+> **Important timing detail**: The CLI reads this file *before* running `sessionStart` hooks. This means the LTM block must already be present in the file when the session starts. The system solves this by having the **`sessionEnd` hook** refresh the block after every session, so it's ready for the next one.
 
-The `sessionEnd` hook:
-1. Reads the session store for the just-ended session
-2. Detects usage patterns (customer engagement, email drafting, code work, etc.)
-3. Extracts facts and entities mentioned during the session
-4. Writes them back to `memory.db` for the next session
+### Session lifecycle
+
+1. **Session N ends** → `sessionEnd` hook runs:
+   - Reads the session store for the just-ended session
+   - Detects usage patterns (customer engagement, email drafting, code work, etc.)
+   - Extracts facts and entities mentioned during the session
+   - Writes them back to `memory.db`
+   - **Refreshes the LTM block** in `copilot-instructions.md` with up-to-date memory
+
+2. **Session N+1 starts** → CLI reads `copilot-instructions.md` (LTM is already there ✅) → `sessionStart` hook also refreshes the block as a backup
+
+### What the LTM block contains
+
+- 🧠 Identity (name, role, territory, attributes)
+- 📂 Active topics (top 5 by last-accessed)
+- ⭐ High-priority facts (importance ≥ 4, grouped by topic)
+- ✅ Pending work items
+- 🔄 Recent patterns (from session classification)
+- 📋 Recent session context (matching current repo/directory)
+- 👥 Known entities (people, accounts, products)
+
+### Mid-session refresh
+
+If you add facts or preferences during a session and want them in context immediately, use:
+
+```powershell
+Matrix-Load
+```
 
 ---
 
