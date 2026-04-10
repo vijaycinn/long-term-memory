@@ -249,6 +249,55 @@ function Export-MemoryContext {
     $result
 }
 
+function Export-Wiki {
+    <#
+    .SYNOPSIS   Generate browsable markdown wiki from LTM data at ~/.copilot/ltm-wiki/.
+    .EXAMPLE    Export-Wiki
+    #>
+    $driver = Join-Path $PSScriptRoot "ltm_wiki_export.py"
+    if (-not (Test-Path $driver)) {
+        throw "ltm_wiki_export.py not found at $driver"
+    }
+    $result = '{}' | python $driver
+    if ($LASTEXITCODE -ne 0) {
+        throw "ltm_wiki_export.py failed: $result"
+    }
+    $parsed = $result | ConvertFrom-Json
+    Write-Host "📚 Wiki exported → $($parsed.wiki_path)"
+    Write-Host "   Topics: $($parsed.topics_exported) | Entities: $($parsed.entities_exported) | Facts: $($parsed.facts_exported)"
+    $parsed
+}
+
+function Lint-Memory {
+    <#
+    .SYNOPSIS   Health-check the memory database. Reports stale facts, orphaned entities, empty topics, and more.
+    .EXAMPLE    Lint-Memory
+    #>
+    $driver = Join-Path $PSScriptRoot "ltm_lint.py"
+    if (-not (Test-Path $driver)) {
+        throw "ltm_lint.py not found at $driver"
+    }
+    $result = '{}' | python $driver
+    if ($LASTEXITCODE -ne 0) {
+        throw "ltm_lint.py failed: $result"
+    }
+    $parsed = $result | ConvertFrom-Json
+    if ($parsed.healthy) {
+        Write-Host "✅ Memory is healthy — no issues found"
+    } else {
+        Write-Host "⚠️ Memory health issues found:"
+        Write-Host "   $($parsed.summary)"
+        Write-Host ""
+        foreach ($check in $parsed.checks.PSObject.Properties) {
+            $c = $check.Value
+            if ($c.count -gt 0) {
+                Write-Host "  🔍 $($check.Name): $($c.count) issues"
+            }
+        }
+    }
+    $parsed
+}
+
 function Get-MemoryStats {
     <#
     .SYNOPSIS   Quick status — row counts per table plus schema version.
@@ -256,6 +305,36 @@ function Get-MemoryStats {
     #>
     $stats = Invoke-Memory @{ op="get_stats" }
     $stats | Format-List
+}
+
+function Sync-Memento {
+    <#
+    .SYNOPSIS   Bidirectional sync between LTM (memory.db) and Memento (memento.db).
+    .EXAMPLE    Sync-Memento
+    .EXAMPLE    Sync-Memento -Direction "memento_to_ltm"
+    #>
+    param(
+        [ValidateSet('both','memento_to_ltm','ltm_to_memento')]
+        [string]$Direction = "both"
+    )
+    $driver = Join-Path $PSScriptRoot "ltm_memento_bridge.py"
+    if (-not (Test-Path $driver)) {
+        throw "ltm_memento_bridge.py not found at $driver"
+    }
+    $payload = @{ direction = $Direction } | ConvertTo-Json -Compress
+    $result = $payload | python $driver
+    if ($LASTEXITCODE -ne 0) {
+        throw "ltm_memento_bridge.py failed: $result"
+    }
+    $parsed = $result | ConvertFrom-Json
+    Write-Host "🔄 Memory bridge sync complete ($Direction)"
+    if ($parsed.memento_to_ltm) {
+        Write-Host "   Memento → LTM: $($parsed.memento_to_ltm.facts_imported) facts, $($parsed.memento_to_ltm.patterns_imported) patterns"
+    }
+    if ($parsed.ltm_to_memento) {
+        Write-Host "   LTM → Memento: $($parsed.ltm_to_memento.entities_exported) entities, $($parsed.ltm_to_memento.facts_exported) facts"
+    }
+    $parsed
 }
 
 Write-Host "🧠 Memory module loaded | DB: $script:MemoryDb"
