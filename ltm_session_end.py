@@ -100,10 +100,20 @@ def extract_entities(turns, mc, sid):
                     (aid, tr["id"], "topic", "mentions"))
     return count
 
-_CORR_RE = re.compile(r'^(?:no[, ]|actually |instead |don\'t |i prefer |always use |never use )',
-                       re.IGNORECASE | re.MULTILINE)
-_DEC_RE = re.compile(r'(?:let\'s go with|we decided|the approach is|use \w+ for |'
-                     r'going with|decided to|plan is to|we\'ll use|switch to)', re.IGNORECASE)
+_CORR_RE = re.compile(
+    r'(?:^|\.\s+|;\s+)(?:'
+    r'no[, ]|actually |instead |don\'t |do not |i prefer |always use |never use |'
+    r'stop (?:doing |using |putting )|that\'s (?:wrong|incorrect|not right)|'
+    r'wrong[, \u2014\u2013-]|please don\'t |should be |'
+    r'not like that|use .+ instead|i don\'t (?:like|want)|'
+    r'from now on |going forward )',
+    re.IGNORECASE | re.MULTILINE)
+_DEC_RE = re.compile(
+    r'(?:let\'s go with|we decided|the approach is|use \w+ for |'
+    r'going with|decided to|plan is to|we\'ll use|switch to|'
+    r'we agreed|we chose|confirmed:|the decision (?:is|was)|'
+    r'we\'re going (?:with|to)|approved:|go ahead with|'
+    r'finalized:|locked in)', re.IGNORECASE)
 
 def _match_topic(text, conn, cache):
     lo = text.lower()
@@ -122,7 +132,7 @@ def extract_facts(turns, mc, sid):
     count, tc = 0, {}
     for t in turns:
         msg = t.get("user_message") or ""
-        if not msg or len(msg) > 500: continue
+        if not msg or len(msg) > 2000: continue
         ft = "preference" if _CORR_RE.search(msg) else ("decision" if _DEC_RE.search(msg) else None)
         if not ft: continue
         content = msg[:300].strip()
@@ -130,7 +140,7 @@ def extract_facts(turns, mc, sid):
         if mc.execute("SELECT id FROM facts WHERE topic_id IS ? AND content=?", (tid, content)).fetchone():
             continue
         mc.execute("INSERT INTO facts(topic_id,content,fact_type,confidence,importance,source,session_id) "
-                   "VALUES(?,?,?,?,?,?,?)", (tid, content, ft, 2, 3, "auto-extracted from session", sid))
+                   "VALUES(?,?,?,?,?,?,?)", (tid, content, ft, 3, 4, "auto-extracted from session", sid))
         count += 1
     return count
 
