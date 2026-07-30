@@ -252,15 +252,22 @@ def touch_fact(p):
 
 
 def touch_topic(p):
-    """Update last_accessed_at by topic_id or slug."""
+    """Update last_accessed_at by topic_id or slug.
+
+    Accepts `topic_slug` as an alias for `slug` so every topic-referencing op
+    takes the same key name — see the contract test in test_memory_driver.py.
+    """
     now = _now()
+    slug = p.get("slug") or p.get("topic_slug")
     with get_conn(_db_path(p)) as conn:
-        if "topic_id" in p:
+        if p.get("topic_id") is not None:
             conn.execute("UPDATE topics SET last_accessed_at=? WHERE id=?", (now, p["topic_id"]))
-        elif "slug" in p:
-            conn.execute("UPDATE topics SET last_accessed_at=? WHERE slug=?", (now, p["slug"]))
+        elif slug:
+            cur = conn.execute("UPDATE topics SET last_accessed_at=? WHERE slug=?", (now, slug))
+            if cur.rowcount == 0:
+                return {"error": f"unknown topic slug: {slug}"}
         else:
-            return {"error": "provide topic_id or slug"}
+            return {"error": "provide topic_id, slug or topic_slug"}
     return {"updated": True}
 
 

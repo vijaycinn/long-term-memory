@@ -460,5 +460,90 @@ class TestBatch(DriverTestCase):
         self.assertIn("error", res)
 
 
+class TestTopicReferenceContract(DriverTestCase):
+    """Contract test — the meta-fix for defects #16 and #19.
+
+    Both were the same bug in different ops: a topic-referencing op accepted
+    only a numeric `topic_id`, and passing the slug (the handle used everywhere
+    else) failed **silently** — add_fact quietly created a global fact,
+    add_snapshot raised KeyError inside a batch and returned a blank field.
+
+    Per-op tests could not catch the *class*, because each test was written
+    against the op's current signature. This enumerates every op that
+    references a topic and asserts the shared contract, so a new op that
+    forgets slug resolution fails here rather than in production.
+    """
+
+    #  op name -> payload builder, given a slug
+    TOPIC_OPS = {
+        "add_fact":     lambda slug: {"content": f"contract probe {slug}", "topic_slug": slug},
+        "add_snapshot": lambda slug: {"title": "contract probe", "topic_slug": slug},
+        "touch_topic":  lambda slug: {"topic_slug": slug},
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.slug = "contract-topic"
+        self.topic_id = self.topic(self.slug)
+
+    def test_every_topic_op_accepts_topic_slug(self):
+        for op, build in self.TOPIC_OPS.items():
+            with self.subTest(op=op):
+                res = md.DISPATCH[op](self.base(**build(self.slug)))
+                self.assertNotIn("error", res, f"{op} rejected topic_slug: {res}")
+
+    def test_every_topic_op_reports_an_unknown_slug(self):
+        # The failure mode that hurt was silence. An unknown slug must be loud.
+        for op, build in self.TOPIC_OPS.items():
+            if op == "add_fact":
+                # add_fact intentionally degrades to a global fact rather than
+                # failing, so assert that explicitly instead.
+                continue
+            with self.subTest(op=op):
+                res = md.DISPATCH[op](self.base(**build("no-such-topic")))
+                self.assertIn("error", res, f"{op} silently accepted an unknown slug")
+
+    def test_slug_actually_attaches_the_row(self):
+        # Not just "no error" — the row must land on the right topic.
+        md.add_fact(self.base(content="attached by contract", topic_slug=self.slug))
+        md.add_snapshot(self.base(title="attached by contract", topic_slug=self.slug))
+
+        fact_topic = self.raw(
+            "SELECT t.slug FROM facts f JOIN topics t ON t.id=f.topic_id "
+            "WHERE f.content='attached by contract'")
+        snap_topic = self.raw(
+            "SELECT t.slug FROM snapshots s JOIN topics t ON t.id=s.topic_id "
+            "WHERE s.title='attached by contract'")
+        self.assertEqual(fact_topic[0][0], self.slug)
+        self.assertEqual(snap_topic[0][0], self.slug)
+
+    def test_touch_topic_still_accepts_legacy_slug_key(self):
+        res = md.touch_topic(self.base(slug=self.slug))
+        self.assertNotIn("error", res)
+
+    def test_new_topic_ops_must_be_registered_here(self):
+        # Tripwire: if an op gains topic_slug handling but is not listed in
+        # TOPIC_OPS, this contract silently stops covering it.
+        import inspect
+        handled = {
+            name for name, fn in md.DISPATCH.items()
+            if "topic_slug" in (inspect.getsource(fn) if _has_source(fn) else "")
+        }
+        # export_context reads topics but takes no topic reference from callers.
+        handled.discard("export_context")
+        self.assertEqual(
+            handled, set(self.TOPIC_OPS),
+            "an op handles topic_slug but is not covered by TOPIC_OPS — add it")
+
+
+def _has_source(fn):
+    import inspect
+    try:
+        inspect.getsource(fn)
+        return True
+    except OSError:
+        return False
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

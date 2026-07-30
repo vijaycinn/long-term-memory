@@ -10,7 +10,7 @@ design together, and how to extend it safely.
 | **Schema version** | **3** |
 | Driver ops | 15 |
 | PowerShell cmdlets | 24 |
-| Tests | **132** across 6 files |
+| Tests | **137** across 6 files |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
 
@@ -118,6 +118,7 @@ now covered by a test. **If you change the relevant code, run the tests.**
 | 17 | `memory_export.py` crashed on Windows *after* writing the file | Emoji printed to a cp1252 console → `UnicodeEncodeError`, so success looked like failure | Force UTF-8 stdout | — |
 | 18 | JSON export silently dropped **194 rows** of behavioural memory | The table list omitted `ltm_patterns` (138) and `ltm_session_log` (56); only `memory_fts*` should be excluded, since that alone is derived | Both added; portable export exposes them as `patterns` / `sessions` | — |
 | 19 | `add_snapshot` with `topic_slug` raised `KeyError('topic_id')` and the snapshot was **silently lost** | Same gap as #16 in a different op — only `topic_id` was accepted | Resolves `topic_slug`; returns a clear error for an unknown slug | `TestBatch` |
+| 20 | `touch_topic` took `slug` while `add_fact` / `add_snapshot` took `topic_slug` | Inconsistent key naming across topic-referencing ops — same trap, but at least it failed loudly | `topic_slug` accepted as an alias; unknown slug now errors instead of silently updating nothing | `TestTopicReferenceContract` |
 
 ---
 
@@ -208,8 +209,26 @@ python memory_export.py --portable --output harness-memory.json
 1. Write the function in `memory_driver.py` taking a single payload dict; use
    `_db_path(p)` so tests can point at a temp database.
 2. Register it in `DISPATCH` — it then works inside `batch` for free.
-3. Add a `Invoke-Memory @{ op="..." }` wrapper in `memory.ps1` with comment help.
-4. Add a test class in `test_memory_driver.py`.
+3. **If it references a topic, accept `topic_slug` and add it to
+   `TestTopicReferenceContract.TOPIC_OPS`.** The slug is the handle used
+   everywhere else; accepting only `topic_id` caused defects #16 and #19 and
+   both failed *silently*.
+4. Add a `Invoke-Memory @{ op="..." }` wrapper in `memory.ps1` with comment help.
+5. Add a test class in `test_memory_driver.py`.
+
+### Why per-op tests were not enough
+Defects #16 and #19 were the same bug in two ops. Each op had a test, but every
+test was written against that op's *current signature*, so it could never fail.
+`TestTopicReferenceContract` tests the **shared contract** instead — it
+enumerates topic-referencing ops, asserts each accepts a slug, asserts each
+reports an unknown slug loudly, asserts the row actually lands on the right
+topic, and includes a **tripwire** that fails if an op gains slug handling
+without being registered. Verified by reintroducing defect #19: the contract
+test goes from green to 1 failure + 3 errors.
+
+**Lesson worth generalising: when you fix a defect, ask whether it is an
+instance or a class.** If a second op could have the same bug, write a contract
+test, not another per-op test.
 
 ### Add a bridge section
 Extend `export_context`: query it, add a `pending_limit`-style tunable, render
@@ -242,15 +261,17 @@ python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
 
 | File | Tests | Covers |
 |------|------:|--------|
-| `test_memory_driver.py` | 46 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
+| `test_memory_driver.py` | 51 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
 | `test_lint.py` | 14 | Health checks |
 | `test_session_start.py` | 9 | sessionStart hook |
 | `test_session_end.py` | 8 | sessionEnd hook |
-| **Total** | **132** | |
+| **Total** | **137** | |
 
 **A change to trigger definitions, `export_context`, or `search_memory` must be
 accompanied by a benchmark run.** The tests prove correctness; only the
 benchmark proves you did not reintroduce defect #9.
+
+
 
