@@ -10,6 +10,15 @@ This package gives Copilot CLI a shared SQLite-backed memory that is automatical
 
 Think of `memory.db` as the knowledge store. At every session **end**, the `sessionEnd` hook extracts new knowledge and then refreshes the LTM block in `copilot-instructions.md`. When the **next** session starts, Copilot CLI reads that file before any hooks fire — so your identity, active topics, high-priority facts, and recent patterns are available from the very first turn. The `sessionStart` hook also refreshes the block as a backup, but the critical write happens at session end to avoid a timing race with file loading.
 
+> ### 🤖 Agents start here → **[CAPABILITIES.md](CAPABILITIES.md)**
+>
+> A single reference describing the **current state** of this system: the full op
+> and cmdlet surface, the data model, every defect already fixed (with root
+> causes, so they are not reintroduced), the invariants that must hold, measured
+> performance characteristics, and a guide to extending it safely.
+>
+> Read it before changing anything here.
+
 ---
 
 ## What it does
@@ -49,6 +58,7 @@ Think of `memory.db` as the knowledge store. At every session **end**, the `sess
 | `ltm_maintain.py` | Retention and compaction: archive stale topics, prune retired facts, dedupe, VACUUM |
 | `ltm_backup.py` | Business continuity: verified snapshots, rotation, status, restore |
 | `test_ltm_ops.py` | Tests for retention and continuity, including a real destroy-and-restore drill |
+| `CAPABILITIES.md` | **Agent reference** — current state, fixed defects, invariants, extension guide |
 
 Run everything:
 

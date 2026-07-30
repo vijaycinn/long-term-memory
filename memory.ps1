@@ -569,4 +569,120 @@ function Invoke-LtmBackup {
     $out | ConvertFrom-Json
 }
 
+function Export-MemoryVersion {
+    <#
+    .SYNOPSIS   Write a datetime-versioned, self-describing snapshot of memory to a folder.
+    .DESCRIPTION
+                Produces a directory named <Destination>\<yyyyMMdd-HHmmss> containing:
+                  memory-<stamp>.db          verified binary snapshot (online backup API)
+                  memory-<stamp>.json        portable human-readable export
+                  memory-context-<stamp>.md  the rendered bridge at this point in time
+                  MANIFEST.md                counts, integrity result, restore instructions
+
+                Unlike Backup-Memory (rotating operational backups), this is an
+                archival, self-contained version you can keep, diff or hand off.
+    .EXAMPLE    Export-MemoryVersion -Destination C:\workspace\agency\memory
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Destination,
+        [string]$Label = ""
+    )
+
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $dir   = Join-Path $Destination $stamp
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+
+    # 1. Verified binary snapshot (WAL-safe online backup, not a file copy).
+    $bk = Invoke-LtmBackup @{ op="backup"; backup_dir=$dir; keep=999 }
+    if (-not $bk.ok) { throw "snapshot failed: $($bk.error)" }
+    $dbPath = Join-Path $dir "memory-$stamp.db"
+    if ($bk.path -ne $dbPath) { Move-Item $bk.path $dbPath -Force }
+
+    # Fold any WAL content back into the file and drop the sidecars, so the
+    # archived .db is genuinely self-contained rather than a 3-file set.
+    $consolidate = @"
+import sqlite3, os
+p = r'$dbPath'
+c = sqlite3.connect(p, isolation_level=None)
+c.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+c.execute('PRAGMA journal_mode=DELETE')
+c.close()
+for side in (p + '-wal', p + '-shm'):
+    if os.path.exists(side):
+        os.remove(side)
+"@
+    $consolidate | python -
+    if ($LASTEXITCODE -ne 0) { throw "failed to consolidate WAL into snapshot" }
+
+    # 2. Portable JSON export.
+    $jsonPath = Join-Path $dir "memory-$stamp.json"
+    $exporter = Join-Path $PSScriptRoot "memory_export.py"
+    python $exporter --output $jsonPath | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "memory_export.py failed" }
+
+    # 3. Rendered bridge as it stands right now.
+    $ctxPath = Join-Path $dir "memory-context-$stamp.md"
+    $null = Export-MemoryContext
+    Copy-Item $script:MemoryContextFile $ctxPath -Force
+
+    # 4. Manifest.
+    $stats  = Invoke-Memory @{ op="get_stats" }
+    $verify = Invoke-LtmBackup @{ op="verify"; path=$dbPath }
+    $sizeDb   = [math]::Round((Get-Item $dbPath).Length / 1KB, 1)
+    $sizeJson = [math]::Round((Get-Item $jsonPath).Length / 1KB, 1)
+
+    $manifest = @"
+# Memory Version — $stamp
+
+$(if ($Label) { "**Label:** $Label`n" })**Exported:** $(Get-Date -Format "yyyy-MM-dd HH:mm:ss zzz")
+**Source:** $($script:MemoryDb)
+**Schema version:** $($stats.schema_version)
+
+## Contents
+
+| File | Size | Purpose |
+|------|------|---------|
+| ``memory-$stamp.db`` | $sizeDb KB | Verified binary snapshot — restore this |
+| ``memory-$stamp.json`` | $sizeJson KB | Portable, human-readable, diffable |
+| ``memory-context-$stamp.md`` | — | The bridge agents read, as rendered at export time |
+
+## Row counts
+
+| Table | Rows |
+|-------|------|
+| topics | $($stats.topics) |
+| facts | $($stats.facts) |
+| entities | $($stats.entities) |
+| snapshots | $($stats.snapshots) |
+| refs | $($stats.refs) |
+
+## Integrity
+
+- ``PRAGMA integrity_check``: **$($verify.integrity)**
+- Foreign-key violations: **$($verify.foreign_key_violations)**
+- Verified: **$($verify.ok)**
+
+## Restore
+
+``````powershell
+. C:\workspace\agency\long-term-memory\memory.ps1
+Restore-Memory -BackupPath "$dbPath"            # dry run
+Restore-Memory -BackupPath "$dbPath" -Confirm   # execute
+``````
+
+The JSON is restorable independently via ``memory_restore.py`` if the binary
+snapshot is ever unusable — two independent recovery paths from one export.
+"@
+    $manifest | Out-File (Join-Path $dir "MANIFEST.md") -Encoding utf8
+
+    Write-Host "📦 Memory version exported → $dir"
+    Write-Host "   Facts: $($stats.facts) | Topics: $($stats.topics) | Entities: $($stats.entities) | Snapshots: $($stats.snapshots)"
+    Write-Host "   Integrity: $($verify.integrity) | DB $sizeDb KB | JSON $sizeJson KB"
+
+    [pscustomobject]@{
+        path = $dir; stamp = $stamp; db = $dbPath; json = $jsonPath
+        context = $ctxPath; stats = $stats; verify = $verify
+    }
+}
+
 Write-Host "🧠 Memory module loaded | DB: $script:MemoryDb"

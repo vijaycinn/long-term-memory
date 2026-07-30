@@ -19,6 +19,21 @@ from datetime import datetime, timezone
 DB = os.path.join(os.environ["USERPROFILE"], ".copilot", "memory.db")
 
 
+def _ensure_utf8_stdout():
+    """Force UTF-8 stdout so status output cannot crash the export.
+
+    The console codepage on Windows is cp1252 by default, and printing a single
+    emoji raised UnicodeEncodeError *after* the backup file had already been
+    written — making a successful export look like a failure to any caller
+    checking the exit code.
+    """
+    for stream in ("stdout", "stderr"):
+        try:
+            getattr(sys, stream).reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
+
 def _ordered_select_sql(conn, table):
     cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
     if "id" in cols:
@@ -74,6 +89,7 @@ def export_memory(output_path=None):
 
 
 if __name__ == "__main__":
+    _ensure_utf8_stdout()
     parser = argparse.ArgumentParser(description="Export memory.db to JSON backup")
     parser.add_argument("--output", "-o", help="Output file path (default: auto-timestamped in .copilot/)")
     args = parser.parse_args()
