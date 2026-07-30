@@ -251,9 +251,15 @@ function Invoke-MemoryMigration {
     $r = Invoke-Memory @{ op="migrate"; force_reindex=[bool]$ForceReindex }
     Write-Host "🔧 Backfilled last_accessed_at → facts: $($r.facts_backfilled) | topics: $($r.topics_backfilled)"
     if ($r.reindexed) {
-        Write-Host "🔁 FTS reindexed → $($r.reindexed.fts_rows) rows | schema v$($r.schema_version)"
+        Write-Host "🔁 FTS reindexed → $($r.reindexed.fts_rows) rows"
+    }
+    if ($r.optimized) {
+        Write-Host "⚡ Performance schema applied (guarded triggers + covering indexes)"
+    }
+    if (-not $r.reindexed -and -not $r.optimized) {
+        Write-Host "   Already at schema v$($r.schema_version) — nothing to do"
     } else {
-        Write-Host "   FTS already at schema v$($r.schema_version) — no reindex needed"
+        Write-Host "   Schema v$($r.from_version) → v$($r.schema_version)"
     }
     $r
 }
@@ -420,6 +426,135 @@ function Sync-Memento {
         Write-Host "   LTM → Memento: $($parsed.ltm_to_memento.entities_exported) entities, $($parsed.ltm_to_memento.facts_exported) facts"
     }
     $parsed
+}
+
+function Invoke-MemoryMaintenance {
+    <#
+    .SYNOPSIS   Retention and compaction — keeps the store fast as topics accumulate.
+    .DESCRIPTION
+                Archives topics idle beyond -StaleTopicDays (protecting any that
+                still have fresh facts), prunes superseded/disproven/resolved facts
+                colder than -PruneDays, removes byte-identical duplicates, then
+                checkpoints the WAL, VACUUMs and re-ANALYZEs.
+
+                DRY RUN BY DEFAULT — pass -Apply to actually write.
+    .EXAMPLE    Invoke-MemoryMaintenance                 # report only
+    .EXAMPLE    Invoke-MemoryMaintenance -Apply
+    #>
+    param(
+        [switch]$Apply,
+        [int]$StaleTopicDays = 180,
+        [int]$PruneDays      = 90
+    )
+    $driver = Join-Path $PSScriptRoot "ltm_maintain.py"
+    if (-not (Test-Path $driver)) { throw "ltm_maintain.py not found at $driver" }
+
+    $payload = @{ apply=[bool]$Apply; stale_topic_days=$StaleTopicDays; prune_days=$PruneDays } |
+               ConvertTo-Json -Compress
+    $out = $payload | python $driver
+    if ($LASTEXITCODE -ne 0) { throw "ltm_maintain.py failed: $out" }
+    $r = $out | ConvertFrom-Json
+    if ($r.error) { throw "maintenance failed: $($r.error)" }
+
+    $mode = if ($r.dry_run) { "DRY RUN (use -Apply to execute)" } else { "APPLIED" }
+    Write-Host "🧹 Memory maintenance — $mode"
+    Write-Host "   Topics to archive : $($r.archive_stale_topics.count) (idle > $($r.archive_stale_topics.threshold_days)d)"
+    Write-Host "   Facts to prune    : $($r.prune_superseded.count) (retired > $($r.prune_superseded.threshold_days)d)"
+    Write-Host "   Duplicates        : $($r.dedupe_facts.count)"
+    if ($r.compact.applied) {
+        Write-Host "   Space reclaimed   : $($r.compact.reclaimed_mb) MB"
+    }
+    Write-Host "   Active facts      : $($r.before.facts_active) → $($r.after.facts_active)"
+    $r
+}
+
+function Backup-Memory {
+    <#
+    .SYNOPSIS   Take a verified, consistent snapshot of memory.db.
+    .DESCRIPTION
+                Uses SQLite's online backup API, not a file copy — memory.db runs
+                in WAL mode, so a plain copy can capture a torn database whose
+                committed transactions still live in the -wal sidecar. Each
+                snapshot is integrity-checked immediately; a backup that fails
+                verification is discarded rather than silently kept.
+    .EXAMPLE    Backup-Memory
+    .EXAMPLE    Backup-Memory -Keep 30 -MirrorDir "$env:OneDrive\ltm-backups"
+    #>
+    param(
+        [int]$Keep = 14,
+        [string]$BackupDir = "",
+        [string]$MirrorDir = ""
+    )
+    $p = @{ op="backup"; keep=$Keep }
+    if ($BackupDir) { $p.backup_dir = $BackupDir }
+    if ($MirrorDir) { $p.mirror_dir = $MirrorDir }
+    $r = Invoke-LtmBackup $p
+    if ($r.ok) {
+        Write-Host "💾 Backup verified → $($r.path)"
+        Write-Host "   Facts: $($r.counts.facts) | Topics: $($r.counts.topics) | Entities: $($r.counts.entities)"
+        if ($r.rotated.removed.Count) { Write-Host "   Rotated out: $($r.rotated.removed.Count) old snapshot(s)" }
+        if ($r.mirror) { Write-Host "   Mirrored → $($r.mirror.path)" }
+    } else {
+        Write-Warning "Backup failed: $($r.error)"
+    }
+    $r
+}
+
+function Get-MemoryBackupStatus {
+    <#
+    .SYNOPSIS   Business-continuity posture: HEALTHY / DEGRADED / AT RISK.
+    .EXAMPLE    Get-MemoryBackupStatus
+    #>
+    param([string]$BackupDir = "")
+    $p = @{ op="status" }
+    if ($BackupDir) { $p.backup_dir = $BackupDir }
+    $r = Invoke-LtmBackup $p
+    $icon = switch ($r.posture) { "HEALTHY" {"✅"} "DEGRADED" {"⚠️"} default {"🚨"} }
+    Write-Host "$icon Continuity: $($r.posture) — $($r.detail)"
+    if ($r.rpo_hours -ne $null) { Write-Host "   RPO: $($r.rpo_hours)h | Backups retained: $($r.backup_count)" }
+    $r
+}
+
+function Restore-Memory {
+    <#
+    .SYNOPSIS   Restore memory.db from a verified backup.
+    .DESCRIPTION
+                Defaults to the newest snapshot. Refuses to restore a backup that
+                fails verification, and saves the current database to a
+                .pre-restore-<stamp> copy before overwriting. Requires -Confirm.
+    .EXAMPLE    Restore-Memory                     # shows what WOULD happen
+    .EXAMPLE    Restore-Memory -Confirm
+    #>
+    param(
+        [string]$BackupPath = "",
+        [string]$BackupDir  = "",
+        [switch]$Confirm
+    )
+    $p = @{ op="restore"; confirm=[bool]$Confirm }
+    if ($BackupPath) { $p.backup = $BackupPath }
+    if ($BackupDir)  { $p.backup_dir = $BackupDir }
+    $r = Invoke-LtmBackup $p
+    if ($r.requires_confirm) {
+        Write-Host "🔍 Would restore: $($r.would_restore)"
+        Write-Host "   Into         : $($r.into)"
+        Write-Host "   Contains     : $($r.verify.counts.facts) facts, $($r.verify.counts.topics) topics"
+        Write-Host "   Re-run with -Confirm to proceed."
+    } elseif ($r.ok) {
+        Write-Host "♻️  Restored from $($r.restored_from)"
+        Write-Host "   Facts: $($r.verify.counts.facts) | Previous DB saved to $($r.pre_restore_copy)"
+    } else {
+        Write-Warning "Restore failed: $($r.error)"
+    }
+    $r
+}
+
+function Invoke-LtmBackup {
+    param([Parameter(Mandatory)][hashtable]$Payload)
+    $driver = Join-Path $PSScriptRoot "ltm_backup.py"
+    if (-not (Test-Path $driver)) { throw "ltm_backup.py not found at $driver" }
+    $out = ($Payload | ConvertTo-Json -Compress) | python $driver
+    if ($LASTEXITCODE -ne 0) { throw "ltm_backup.py failed: $out" }
+    $out | ConvertFrom-Json
 }
 
 Write-Host "🧠 Memory module loaded | DB: $script:MemoryDb"

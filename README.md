@@ -45,6 +45,10 @@ Think of `memory.db` as the knowledge store. At every session **end**, the `sess
 | `test_wiki_export.py` | Tests for wiki export |
 | `test_lint.py` | Tests for the lint command |
 | `test_memory_driver.py` | Tests for the driver: FTS sanitizing, recency, export fairness, identity, migration |
+| `ltm_bench.py` | Scale benchmark — builds synthetic databases and times the hot paths |
+| `ltm_maintain.py` | Retention and compaction: archive stale topics, prune retired facts, dedupe, VACUUM |
+| `ltm_backup.py` | Business continuity: verified snapshots, rotation, status, restore |
+| `test_ltm_ops.py` | Tests for retention and continuity, including a real destroy-and-restore drill |
 
 Run everything:
 
@@ -102,6 +106,126 @@ Export-MemoryContext -TopicLimit 6 -PerTopicFacts 6 -MaxFacts 45
 | `-MinImportance` | 4 | Minimum importance to qualify |
 | `-EntityLimit` | 15 | Entities listed |
 | `-PendingLimit` | 10 | `todo` / `action` / `question` facts listed |
+
+---
+
+## Is it scalable? — measured, not assumed
+
+`ltm_bench.py` builds synthetic databases and times the operations that actually
+run in a session. Numbers from this machine, median of 5 runs:
+
+```powershell
+python ltm_bench.py --sizes 1000,10000,50000,100000
+```
+
+| facts | topics | DB | `export_context` (session start) | search (selective) | search (worst case) | `add_fact` |
+|------:|-------:|---:|---:|---:|---:|---:|
+| 1 000 | 25 | 1.4 MB | 43 ms | 5 ms | 6 ms | 33 ms |
+| 10 000 | 100 | 11.6 MB | 48 ms | 5 ms | 16 ms | 37 ms |
+| 50 000 | 500 | 58 MB | 103 ms | 7 ms | 51 ms | 39 ms |
+| 100 000 | 1 000 | 116 MB | **161 ms** | **7 ms** | 104 ms | 33 ms |
+
+**Verdict: yes — after the v3 fixes.** At 100 000 facts (roughly 335× a
+real-world store of ~300) session start is 161 ms and writes are flat.
+
+It was **not** scalable before. The v3 work changed the shape of the curve:
+
+| @ 50 000 facts | before | after | gain |
+|---|---:|---:|---:|
+| `export_context` | **4 341 ms** | **103 ms** | **42×** |
+| `export_context` p95 | 4 493 ms | 142 ms | 32× |
+| search | 405 ms | 51 ms | 8× |
+| search (selective) | 180 ms | 7 ms | 26× |
+| scaling behaviour | linear | **sub-linear** | — |
+
+### What was actually wrong
+
+1. **The killer: FTS churn on recency updates.** `export_context` bumps
+   `last_accessed_at` on every fact it surfaces. Each `UPDATE` fired
+   `fts_facts_update`, whose `DELETE FROM memory_fts WHERE row_id = ?` is a
+   **full scan** — `memory_fts.row_id` is `UNINDEXED`. Forty touched facts
+   against a 51 000-row index meant ~2 million scanned rows *per session start*.
+   Fixed by guarding the trigger with `WHEN OLD.content IS NOT NEW.content`, so
+   recency bumps no longer re-index anything.
+2. **A second write per touch.** `facts_updated` bumped `updated_at` on every
+   update, including pure recency bumps. Now guarded to content-bearing columns.
+3. **Search resolved through a 4-way `UNION ALL` view.** Joining `memory_fts`
+   against `fts_resolved` materialised every row in the database to return ten.
+   Now the FTS ids are fetched first and resolved with bounded `IN (...)`
+   lookups, so resolution is O(limit).
+4. **No covering indexes** for the export queries — added
+   `idx_facts_topic_rank`, `idx_facts_status_rank`, `idx_facts_pending`,
+   `idx_entities_recent`.
+5. **N individual `UPDATE`s** for recency — now one batched statement per table.
+
+The worst-case search column uses a term present in a large fraction of rows, so
+bm25 must score everything it matches; a *selective* term stays flat at ~7 ms
+regardless of size, which is the realistic case.
+
+---
+
+## Keeping it healthy as topics accumulate
+
+Speed is only half of scale — an ever-growing store also loses signal. Two
+commands cover day-to-day upkeep.
+
+### Retention and compaction
+
+```powershell
+Invoke-MemoryMaintenance            # DRY RUN — reports what it would do
+Invoke-MemoryMaintenance -Apply     # execute
+```
+
+| Step | Default | Behaviour |
+|------|---------|-----------|
+| Archive stale topics | idle > 180 d | `status='archived'` — data is kept and stays searchable, it just stops competing for space in the bridge. **Topics with recent facts are protected.** |
+| Prune retired facts | retired > 90 d | Deletes only facts already marked `superseded` / `disproven` / `resolved` **and** gone cold. Active facts are never touched. |
+| De-duplicate | — | `UNIQUE(topic_id, content)` misses global facts because SQLite treats `NULL != NULL`; this catches them. Keeps the oldest. |
+| Compact | — | WAL checkpoint, `VACUUM`, `ANALYZE`. |
+
+Retire a fact instead of deleting it — `status='superseded'` keeps the history
+and lets the pruner remove it later:
+
+```sql
+UPDATE facts SET status='superseded' WHERE id = 282;
+```
+
+### Business continuity
+
+```powershell
+Backup-Memory                       # verified snapshot + rotation
+Get-MemoryBackupStatus              # HEALTHY / DEGRADED / AT RISK
+Restore-Memory                      # dry run — shows what would be restored
+Restore-Memory -Confirm             # actually restore
+```
+
+| Property | Value |
+|---|---|
+| Method | SQLite **online backup API** — not a file copy |
+| Why | `memory.db` runs in WAL mode; a plain copy can capture a torn database whose committed transactions still live in the `-wal` sidecar |
+| Verification | Every snapshot gets `PRAGMA integrity_check` + `foreign_key_check` + row counts **at creation**. A backup that fails is discarded, not silently kept |
+| Automatic | The `sessionEnd` hook snapshots if the newest backup is older than 12 h |
+| **RPO** | **≤ 12 h** unattended; 0 on demand |
+| **RTO** | Seconds — `Restore-Memory -Confirm` |
+| Retention | 14 rotating snapshots (`-Keep` to change) |
+| Off-machine | `Backup-Memory -MirrorDir "$env:OneDrive\ltm-backups"` |
+| Safety | Restore refuses an unverified backup, and saves the current DB to `.pre-restore-<stamp>` first |
+
+The restore path is covered by a real disaster drill in `test_ltm_ops.py`:
+the database is deleted outright, and separately has its header shredded, then
+restored and checked for exact content equality and working search. A backup
+that has never been restored is a hypothesis, not a guarantee.
+
+### Suggested cadence
+
+| When | Command |
+|------|---------|
+| Automatic, every session | snapshot via `sessionEnd` hook (≤ 12 h RPO) |
+| Weekly | `Invoke-MemoryMaintenance` — review the dry run |
+| Monthly | `Invoke-MemoryMaintenance -Apply` |
+| Quarterly | `Restore-Memory` dry run to confirm recoverability; `python ltm_bench.py` to catch regressions |
+
+---
 
 
 ## Quick Start

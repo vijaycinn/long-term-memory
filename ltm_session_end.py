@@ -230,6 +230,35 @@ def refresh_ltm_instructions(hook_input):
         pass  # best-effort; sessionStart hook is the backup
 
 
+def auto_backup(hook_input, interval_hours=12):
+    """Take a verified snapshot if the newest one is older than interval_hours.
+
+    This is what makes continuity automatic: without it, backups depend on
+    somebody remembering to run Backup-Memory. Throttled so it costs nothing on
+    back-to-back sessions, and best-effort so a backup problem can never break
+    the hook.
+    """
+    try:
+        _this_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, _this_dir)
+        import ltm_backup
+
+        payload = {}
+        if hook_input.get("db_path"):
+            payload["db_path"] = hook_input["db_path"]
+        if hook_input.get("backup_dir"):
+            payload["backup_dir"] = hook_input["backup_dir"]
+
+        inv = ltm_backup.list_backups(payload)
+        newest = inv["backups"][0] if inv["backups"] else None
+        if newest and newest["age_hours"] < interval_hours:
+            return {"skipped": True, "age_hours": newest["age_hours"]}
+
+        return ltm_backup.backup(dict(payload, keep=hook_input.get("keep", 14)))
+    except Exception:
+        return None  # best-effort; never break the hook
+
+
 def main():
     try: hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, EOFError): hook_input = {}
@@ -238,6 +267,8 @@ def main():
     # After extracting new facts/entities, refresh the LTM instructions file
     # so the NEXT session starts with up-to-date memory context already baked in.
     refresh_ltm_instructions(hook_input)
+    # Continuity: throttled, verified snapshot so RPO stays bounded automatically.
+    auto_backup(hook_input)
 
 if __name__ == "__main__":
     main()

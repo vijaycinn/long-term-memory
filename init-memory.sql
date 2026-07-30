@@ -9,7 +9,7 @@ PRAGMA foreign_keys = ON;
 -- ── schema_version ────────────────────────────────────────────────────
 -- Bump version integer on every schema change; never delete rows.
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
-INSERT INTO schema_version SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM schema_version);
+INSERT INTO schema_version SELECT 3 WHERE NOT EXISTS (SELECT 1 FROM schema_version);
 -- v2: topic slug added to the FTS index and fts_resolved view so
 --     Search-Memory -Query 'fy27-comp-plan' finds the topic you named.
 --     Existing databases are upgraded in place by the `migrate` op.
@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS facts (
   UNIQUE(topic_id, content)                -- dedup: same fact won't be inserted twice per topic
 );
 CREATE TRIGGER IF NOT EXISTS facts_updated AFTER UPDATE ON facts
+-- Guarded: a pure recency bump (last_accessed_at) must not trigger an extra write.
+WHEN OLD.content IS NOT NEW.content
+  OR OLD.importance IS NOT NEW.importance
+  OR OLD.status IS NOT NEW.status
+  OR OLD.fact_type IS NOT NEW.fact_type
 BEGIN
   UPDATE facts SET updated_at = datetime('now') WHERE id = NEW.id;
 END;
@@ -144,6 +149,10 @@ BEGIN
   INSERT INTO memory_fts(content, row_id, table_name) VALUES (NEW.content, NEW.id, 'facts');
 END;
 CREATE TRIGGER IF NOT EXISTS fts_facts_update AFTER UPDATE ON facts
+-- Guarded by content. memory_fts.row_id is UNINDEXED, so the DELETE below is a
+-- FULL SCAN of the FTS table. Without this guard every last_accessed_at bump
+-- during export_context re-indexed the row, making session start O(facts).
+WHEN OLD.content IS NOT NEW.content
 BEGIN
   DELETE FROM memory_fts WHERE row_id = OLD.id AND table_name = 'facts';
   INSERT INTO memory_fts(content, row_id, table_name) VALUES (NEW.content, NEW.id, 'facts');
@@ -177,6 +186,9 @@ BEGIN
   VALUES (NEW.slug || ' ' || NEW.title || ' ' || COALESCE(NEW.description, ''), NEW.id, 'topics');
 END;
 CREATE TRIGGER IF NOT EXISTS fts_topics_update AFTER UPDATE ON topics
+WHEN OLD.slug IS NOT NEW.slug
+  OR OLD.title IS NOT NEW.title
+  OR OLD.description IS NOT NEW.description
 BEGIN
   DELETE FROM memory_fts WHERE row_id = OLD.id AND table_name = 'topics';
   INSERT INTO memory_fts(content, row_id, table_name)
@@ -216,6 +228,16 @@ END;
 CREATE INDEX IF NOT EXISTS idx_facts_topic       ON facts(topic_id);
 CREATE INDEX IF NOT EXISTS idx_facts_type_status ON facts(fact_type, status);
 CREATE INDEX IF NOT EXISTS idx_facts_importance  ON facts(importance DESC, last_accessed_at DESC);
+-- v3: covering indexes for the two export_context hot queries. Without these
+-- SQLite filters then filesorts, which grows with total fact count even though
+-- the result set is bounded.
+CREATE INDEX IF NOT EXISTS idx_facts_topic_rank
+  ON facts(topic_id, status, importance DESC, last_accessed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_facts_status_rank
+  ON facts(status, importance DESC, last_accessed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_facts_pending
+  ON facts(status, fact_type, importance DESC);
+CREATE INDEX IF NOT EXISTS idx_entities_recent  ON entities(is_self, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_topics_accessed   ON topics(last_accessed_at DESC) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_mentions_entity   ON entity_mentions(entity_id);
 CREATE INDEX IF NOT EXISTS idx_mentions_parent   ON entity_mentions(parent_id, parent_type);
@@ -235,3 +257,4 @@ CREATE VIEW IF NOT EXISTS fts_resolved AS
   SELECT 'topics'    AS src, id, slug || ' ' || title || ' ' || COALESCE(description,'') AS text, category   AS subtype FROM topics
   UNION ALL
   SELECT 'snapshots' AS src, id, COALESCE(summary,'') || ' ' || COALESCE(findings,'')  AS text, NULL        AS subtype FROM snapshots;
+

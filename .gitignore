@@ -5,3 +5,4 @@ __pycache__/
 memory-context.md
 memory-backup-*.json
 seed_memory.py
+memory-backups/

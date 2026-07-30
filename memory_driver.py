@@ -245,6 +245,67 @@ def touch_topic(p):
     return {"updated": True}
 
 
+_RESOLVE_SQL = {
+    "facts": "SELECT id, content AS text, fact_type AS subtype FROM facts WHERE id IN (%s)",
+    "entities": "SELECT id, name || ' ' || COALESCE(notes,'') AS text, entity_type AS subtype "
+                "FROM entities WHERE id IN (%s)",
+    "topics": "SELECT id, slug || ' ' || title || ' ' || COALESCE(description,'') AS text, "
+              "category AS subtype FROM topics WHERE id IN (%s)",
+    "snapshots": "SELECT id, COALESCE(summary,'') || ' ' || COALESCE(findings,'') AS text, "
+                 "NULL AS subtype FROM snapshots WHERE id IN (%s)",
+}
+
+
+def _run_match(conn, query, limit):
+    """Bounded FTS lookup, then resolve only the rows we actually matched.
+
+    The previous implementation joined memory_fts against the fts_resolved view,
+    a 4-way UNION ALL over every row in the database, so a 10-row search grew
+    linearly with total size. Selecting hit ids first keeps resolution O(limit).
+    """
+    hits = conn.execute(
+        """
+        SELECT row_id, table_name, bm25(memory_fts) AS rank
+        FROM memory_fts
+        WHERE memory_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+        """,
+        (query, limit),
+    ).fetchall()
+    if not hits:
+        return []
+
+    by_src = {}
+    for h in hits:
+        by_src.setdefault(h["table_name"], []).append(h["row_id"])
+
+    resolved = {}
+    for src, ids in by_src.items():
+        sql = _RESOLVE_SQL.get(src)
+        if not sql:
+            continue
+        placeholders = ",".join("?" * len(ids))
+        for row in conn.execute(sql % placeholders, ids):
+            resolved[(src, row["id"])] = (row["text"], row["subtype"])
+
+    out = []
+    for h in hits:
+        key = (h["table_name"], h["row_id"])
+        if key not in resolved:
+            continue          # source row deleted but FTS entry lingered
+        text, subtype = resolved[key]
+        out.append({
+            "src": h["table_name"],
+            "id": h["row_id"],
+            "text": text,
+            "content": text,   # alias: .content and .text both work
+            "subtype": subtype,
+            "rank": h["rank"],
+        })
+    return out
+
+
 def search_memory(p):
     """Full-text search across all memory tables.
 
@@ -263,35 +324,22 @@ def search_memory(p):
     limit = p.get("limit", 10)
     raw_only = bool(p.get("raw", False))
 
-    sql = """
-        SELECT r.src, r.id, r.text, r.subtype, bm25(memory_fts) AS rank
-        FROM memory_fts m
-        JOIN fts_resolved r ON r.src = m.table_name AND r.id = m.row_id
-        WHERE memory_fts MATCH ?
-        ORDER BY rank
-        LIMIT ?
-    """
-
     with get_conn(_db_path(p)) as conn:
         sanitized = False
         try:
-            rows = conn.execute(sql, (query, limit)).fetchall()
+            rows = _run_match(conn, query, limit)
         except sqlite3.OperationalError:
             if raw_only:
                 raise
             safe = _fts_sanitize(query)
             if safe == query:
                 raise
-            rows = conn.execute(sql, (safe, limit)).fetchall()
+            rows = _run_match(conn, safe, limit)
             sanitized = True
 
-        out = []
         for r in rows:
-            d = dict(r)
-            d["content"] = d.get("text")   # alias: .content and .text both work
-            d["sanitized"] = sanitized
-            out.append(d)
-        return out
+            r["sanitized"] = sanitized
+        return rows
 
 
 def set_identity(p):
@@ -326,7 +374,62 @@ def set_identity(p):
         return {"entity_id": row[0], "is_self": True}
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+
+
+def optimize_db(p=None):
+    """Apply the v3 performance schema to an existing database.
+
+    Recreates the update triggers with WHEN guards and adds the covering
+    indexes. Safe and idempotent.
+    """
+    with get_conn(_db_path(p or {})) as conn:
+        conn.executescript(
+            """
+            DROP TRIGGER IF EXISTS facts_updated;
+            DROP TRIGGER IF EXISTS fts_facts_update;
+            DROP TRIGGER IF EXISTS fts_topics_update;
+
+            CREATE TRIGGER facts_updated AFTER UPDATE ON facts
+            WHEN OLD.content IS NOT NEW.content
+              OR OLD.importance IS NOT NEW.importance
+              OR OLD.status IS NOT NEW.status
+              OR OLD.fact_type IS NOT NEW.fact_type
+            BEGIN
+              UPDATE facts SET updated_at = datetime('now') WHERE id = NEW.id;
+            END;
+
+            CREATE TRIGGER fts_facts_update AFTER UPDATE ON facts
+            WHEN OLD.content IS NOT NEW.content
+            BEGIN
+              DELETE FROM memory_fts WHERE row_id = OLD.id AND table_name = 'facts';
+              INSERT INTO memory_fts(content, row_id, table_name)
+              VALUES (NEW.content, NEW.id, 'facts');
+            END;
+
+            CREATE TRIGGER fts_topics_update AFTER UPDATE ON topics
+            WHEN OLD.slug IS NOT NEW.slug
+              OR OLD.title IS NOT NEW.title
+              OR OLD.description IS NOT NEW.description
+            BEGIN
+              DELETE FROM memory_fts WHERE row_id = OLD.id AND table_name = 'topics';
+              INSERT INTO memory_fts(content, row_id, table_name)
+              VALUES (NEW.slug || ' ' || NEW.title || ' ' || COALESCE(NEW.description, ''),
+                      NEW.id, 'topics');
+            END;
+
+            CREATE INDEX IF NOT EXISTS idx_facts_topic_rank
+              ON facts(topic_id, status, importance DESC, last_accessed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_facts_status_rank
+              ON facts(status, importance DESC, last_accessed_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_facts_pending
+              ON facts(status, fact_type, importance DESC);
+            CREATE INDEX IF NOT EXISTS idx_entities_recent
+              ON entities(is_self, updated_at DESC);
+            """
+        )
+        conn.execute("ANALYZE")
+    return {"optimized": True, "schema_version": SCHEMA_VERSION}
 
 
 def reindex_fts(p=None):
@@ -422,14 +525,23 @@ def migrate(p=None):
         version = row[0] if row else 1
 
     reindexed = None
-    if version < SCHEMA_VERSION or p.get("force_reindex"):
+    if version < 2 or p.get("force_reindex"):
         reindexed = reindex_fts(p)
+
+    optimized = None
+    if version < 3 or p.get("force_optimize"):
+        optimized = optimize_db(p)
+
+    with get_conn(_db_path(p)) as conn:
+        conn.execute("UPDATE schema_version SET version=?", (SCHEMA_VERSION,))
 
     return {
         "facts_backfilled": facts,
         "topics_backfilled": topics,
         "schema_version": SCHEMA_VERSION,
+        "from_version": version,
         "reindexed": reindexed,
+        "optimized": optimized,
     }
 
 
@@ -557,11 +669,22 @@ def export_context(p=None):
         ).fetchall()
 
         now = _now()
-        for t in topics:
-            conn.execute("UPDATE topics SET last_accessed_at=? WHERE id=?", (now, t["id"]))
-        # Touch what we actually surfaced so recency reflects real usage.
-        for f in facts:
-            conn.execute("UPDATE facts SET last_accessed_at=? WHERE id=?", (now, f["id"]))
+        # Batched: one statement each instead of N. Combined with the WHEN-guarded
+        # FTS triggers this keeps session start O(result size), not O(database).
+        if topics:
+            ids = [t["id"] for t in topics]
+            conn.execute(
+                "UPDATE topics SET last_accessed_at=? WHERE id IN (%s)"
+                % ",".join("?" * len(ids)),
+                [now] + ids,
+            )
+        if facts:
+            ids = [f["id"] for f in facts]
+            conn.execute(
+                "UPDATE facts SET last_accessed_at=? WHERE id IN (%s)"
+                % ",".join("?" * len(ids)),
+                [now] + ids,
+            )
 
     # ── build markdown ────────────────────────────────────────────────
     ts = _now()
@@ -685,6 +808,7 @@ DISPATCH = {
     "export_context": export_context,
     "migrate":        migrate,
     "reindex_fts":    reindex_fts,
+    "optimize_db":    optimize_db,
     "get_stats":      get_stats,
 }
 
@@ -701,3 +825,4 @@ if __name__ == "__main__":
     except Exception as exc:
         print(json.dumps({"error": str(exc), "type": type(exc).__name__}))
         sys.exit(1)
+
