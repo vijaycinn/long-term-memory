@@ -614,11 +614,15 @@ for side in (p + '-wal', p + '-shm'):
     $consolidate | python -
     if ($LASTEXITCODE -ne 0) { throw "failed to consolidate WAL into snapshot" }
 
-    # 2. Portable JSON export.
+    # 2. Portable JSON exports: full (restorable) + flat (for other harnesses).
     $jsonPath = Join-Path $dir "memory-$stamp.json"
     $exporter = Join-Path $PSScriptRoot "memory_export.py"
     python $exporter --output $jsonPath | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "memory_export.py failed" }
+
+    $portablePath = Join-Path $dir "memory-$stamp.portable.json"
+    python $exporter --portable --output $portablePath | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "memory_export.py --portable failed" }
 
     # 3. Rendered bridge as it stands right now.
     $ctxPath = Join-Path $dir "memory-context-$stamp.md"
@@ -630,6 +634,7 @@ for side in (p + '-wal', p + '-shm'):
     $verify = Invoke-LtmBackup @{ op="verify"; path=$dbPath }
     $sizeDb   = [math]::Round((Get-Item $dbPath).Length / 1KB, 1)
     $sizeJson = [math]::Round((Get-Item $jsonPath).Length / 1KB, 1)
+    $sizePort = [math]::Round((Get-Item $portablePath).Length / 1KB, 1)
 
     $manifest = @"
 # Memory Version — $stamp
@@ -642,8 +647,9 @@ $(if ($Label) { "**Label:** $Label`n" })**Exported:** $(Get-Date -Format "yyyy-M
 
 | File | Size | Purpose |
 |------|------|---------|
-| ``memory-$stamp.db`` | $sizeDb KB | Verified binary snapshot — restore this |
-| ``memory-$stamp.json`` | $sizeJson KB | Portable, human-readable, diffable |
+| ``memory-$stamp.db`` | $sizeDb KB | Verified binary snapshot — **restore this** |
+| ``memory-$stamp.json`` | $sizeJson KB | Full table-shaped export — restorable via ``memory_restore.py`` |
+| ``memory-$stamp.portable.json`` | $sizePort KB | **Flat, join-free — use this in another agent harness** |
 | ``memory-context-$stamp.md`` | — | The bridge agents read, as rendered at export time |
 
 ## Row counts
@@ -670,8 +676,23 @@ Restore-Memory -BackupPath "$dbPath"            # dry run
 Restore-Memory -BackupPath "$dbPath" -Confirm   # execute
 ``````
 
-The JSON is restorable independently via ``memory_restore.py`` if the binary
-snapshot is ever unusable — two independent recovery paths from one export.
+The full JSON is restorable independently via ``memory_restore.py`` if the
+binary snapshot is ever unusable — two independent recovery paths.
+
+## Using this in another agent harness
+
+Read ``memory-$stamp.portable.json``. Top-level keys: ``identity``, ``topics``,
+``facts``, ``entities``, ``snapshots``, ``patterns``, ``sessions``, ``counts``.
+Facts already carry a resolved ``topic`` slug, so no joins are needed:
+
+``````json
+{ "content": "...", "type": "finding", "importance": 5,
+  "confidence": 5, "status": "active", "source": "...",
+  "topic": "fy27-comp-plan", "last_accessed_at": "..." }
+``````
+
+Filter on ``status == "active"`` for current knowledge, and sort by
+``importance`` (5 = load always) to build that harness's own context window.
 "@
     $manifest | Out-File (Join-Path $dir "MANIFEST.md") -Encoding utf8
 
@@ -681,7 +702,7 @@ snapshot is ever unusable — two independent recovery paths from one export.
 
     [pscustomobject]@{
         path = $dir; stamp = $stamp; db = $dbPath; json = $jsonPath
-        context = $ctxPath; stats = $stats; verify = $verify
+        portable = $portablePath; context = $ctxPath; stats = $stats; verify = $verify
     }
 }
 

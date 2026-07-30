@@ -56,8 +56,12 @@ def export_memory(output_path=None):
         db_dir = os.path.dirname(DB)
         output_path = os.path.join(db_dir, f"memory-backup-{ts}.json")
 
+    # memory_fts* are derived and rebuildable, so they are intentionally omitted.
+    # ltm_patterns / ltm_session_log are NOT derived — they are behavioural
+    # memory, and leaving them out silently dropped real signal.
     tables = ["schema_version", "topics", "facts", "entities",
-              "entity_mentions", "snapshots", "refs"]
+              "entity_mentions", "snapshots", "refs",
+              "ltm_patterns", "ltm_session_log"]
 
     backup = {
         "export_format": "copilot-memory-v1",
@@ -88,10 +92,91 @@ def export_memory(output_path=None):
     return output_path
 
 
+def export_portable(output_path=None):
+    """Flat, join-free export for consumption by a different agent harness.
+
+    The default export mirrors the SQL tables, so facts reference topics by
+    numeric id and any consumer has to reproduce the joins. This variant
+    resolves those references and drops internal ids, producing a structure a
+    foreign harness can read directly.
+
+    Not restorable by memory_restore.py — use the standard export for recovery.
+    """
+    if not os.path.exists(DB):
+        print(f"ERROR: memory.db not found at {DB}", file=sys.stderr)
+        sys.exit(1)
+
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    if output_path is None:
+        output_path = os.path.join(os.path.dirname(DB), f"memory-portable-{ts}.json")
+
+    def rows(sql, args=()):
+        try:
+            return [dict(r) for r in conn.execute(sql, args).fetchall()]
+        except sqlite3.Error:
+            return []
+
+    identity = rows(
+        "SELECT name, entity_type AS type, attributes, notes FROM entities "
+        "WHERE is_self=1 LIMIT 1")
+
+    out = {
+        "export_format": "copilot-memory-portable-v1",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "source_db": os.path.basename(DB),
+        "identity": identity[0] if identity else None,
+        "topics": rows(
+            "SELECT slug, title, category, status, description, "
+            "last_accessed_at, created_at FROM topics ORDER BY slug"),
+        "facts": rows(
+            "SELECT f.content, f.fact_type AS type, f.importance, f.confidence, "
+            "       f.status, f.source, COALESCE(t.slug,'') AS topic, "
+            "       f.last_accessed_at, f.created_at "
+            "FROM facts f LEFT JOIN topics t ON t.id = f.topic_id "
+            "ORDER BY f.importance DESC, f.id"),
+        "entities": rows(
+            "SELECT name, entity_type AS type, notes, attributes FROM entities "
+            "WHERE is_self=0 ORDER BY name"),
+        "snapshots": rows(
+            "SELECT COALESCE(t.slug,'') AS topic, s.seq_number, s.title, s.summary, "
+            "       s.findings, s.decisions, s.open_questions, s.next_steps, s.created_at "
+            "FROM snapshots s LEFT JOIN topics t ON t.id = s.topic_id "
+            "ORDER BY t.slug, s.seq_number"),
+        "patterns": rows(
+            "SELECT pattern_type, description, cwd, created_at "
+            "FROM ltm_patterns ORDER BY created_at DESC"),
+        "sessions": rows(
+            "SELECT session_id, summary, cwd, end_reason, facts_extracted, "
+            "       entities_extracted, patterns_detected, processed_at "
+            "FROM ltm_session_log ORDER BY processed_at DESC"),
+    }
+    conn.close()
+
+    out["counts"] = {k: len(v) for k, v in out.items() if isinstance(v, list)}
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=2, default=str, ensure_ascii=False)
+
+    for k, v in out["counts"].items():
+        print(f"  {k}: {v}")
+    size_kb = os.path.getsize(output_path) / 1024
+    print(f"\n✅ Portable export saved: {output_path} ({size_kb:.1f} KB)")
+    return output_path
+
+
 if __name__ == "__main__":
     _ensure_utf8_stdout()
     parser = argparse.ArgumentParser(description="Export memory.db to JSON backup")
     parser.add_argument("--output", "-o", help="Output file path (default: auto-timestamped in .copilot/)")
+    parser.add_argument("--portable", action="store_true",
+                        help="Flat, join-free export for a different agent harness "
+                             "(topic slugs resolved, ids dropped). Not restorable.")
     args = parser.parse_args()
     print(f"Exporting memory.db from: {DB}\n")
-    export_memory(args.output)
+    if args.portable:
+        export_portable(args.output)
+    else:
+        export_memory(args.output)

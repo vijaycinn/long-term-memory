@@ -116,6 +116,7 @@ now covered by a test. **If you change the relevant code, run the tests.**
 | 15 | Two backups in the same second **silently overwrote** each other | Second-granular filename collision — a lost recovery point | Collision-proof paths | `TestBackup` |
 | 16 | `topic_slug` in a batch silently created a **global** fact | `add_fact` only accepted `topic_id` | `add_fact` resolves `topic_slug` | `TestBatch` |
 | 17 | `memory_export.py` crashed on Windows *after* writing the file | Emoji printed to a cp1252 console → `UnicodeEncodeError`, so success looked like failure | Force UTF-8 stdout | — |
+| 18 | JSON export silently dropped **194 rows** of behavioural memory | The table list omitted `ltm_patterns` (138) and `ltm_session_log` (56); only `memory_fts*` should be excluded, since that alone is derived | Both added; portable export exposes them as `patterns` / `sessions` | — |
 
 ---
 
@@ -169,8 +170,34 @@ Export-MemoryVersion -Destination <dir>   # archival, self-contained versioned e
 ```
 
 `Export-MemoryVersion` writes `<dir>\<yyyyMMdd-HHmmss>\` containing a verified
-`.db`, a portable `.json`, the rendered bridge, and a `MANIFEST.md` — **two
-independent recovery paths** from one export.
+`.db`, a full `.json`, a **flat `.portable.json`**, the rendered bridge, and a
+`MANIFEST.md` — **two independent recovery paths** from one export.
+
+### Consuming memory in a different agent harness
+
+Use the `.portable.json` (`copilot-memory-portable-v1`), not the table-shaped
+export. It resolves foreign keys and drops internal ids, so no joins are needed:
+
+```json
+{ "identity": { "name": "...", "attributes": "...", "notes": "..." },
+  "facts": [ { "content": "...", "type": "finding", "importance": 5,
+               "confidence": 5, "status": "active", "source": "...",
+               "topic": "fy27-comp-plan", "last_accessed_at": "..." } ],
+  "topics": [...], "entities": [...], "snapshots": [...],
+  "patterns": [...], "sessions": [...], "counts": {...} }
+```
+
+Filter `status == "active"` for current knowledge; sort by `importance`
+(5 = load always) to build that harness's own context window.
+
+```powershell
+python memory_export.py --portable --output harness-memory.json
+```
+
+> **The table-shaped export omits `memory_fts*` by design** — it is derived and
+> rebuilt by `reindex_fts`. It does **not** omit `ltm_patterns` or
+> `ltm_session_log`; those are behavioural memory and were previously being
+> dropped silently (defect #18).
 
 ---
 
