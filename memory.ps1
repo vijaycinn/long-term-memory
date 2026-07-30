@@ -1,4 +1,4 @@
-# memory.ps1 — Long-term memory PowerShell module for Copilot agents.
+﻿# memory.ps1 — Long-term memory PowerShell module for Copilot agents.
 #
 # Usage: . .\memory.ps1
 #
@@ -67,6 +67,11 @@ function Add-Fact {
     <#
     .SYNOPSIS   Add an atomic fact. Deduped via UNIQUE(topic_id, content).
                 Returns {fact_id, inserted: bool}.
+    .DESCRIPTION
+                last_accessed_at is set on insert, so a new fact is immediately
+                eligible for Export-MemoryContext. Calling Touch-Fact afterwards
+                is no longer required (it remains available for re-ranking an
+                older fact you want to resurface).
     .EXAMPLE    Add-Fact -TopicSlug "gcc-gaps" -Content "DevBox not available in GCC" -Importance 5
     #>
     param(
@@ -182,16 +187,75 @@ function Touch-Topic {
 
 function Search-Memory {
     <#
-    .SYNOPSIS   Full-text search across all memory tables. Returns list of {src, id, text, subtype}.
+    .SYNOPSIS   Full-text search across facts, entities, topics and snapshots.
+    .DESCRIPTION
+                Returns a list of objects with: src, id, text, content, subtype,
+                rank, sanitized.
+
+                NOTE: the body is exposed as BOTH .text (historical) and
+                .content (alias) — either works.
+
+                Hyphens and colons are FTS5 operators. The driver runs your query
+                verbatim first (so OR / NOT / "phrase" / prefix* still work) and,
+                only if SQLite rejects it, auto-quotes bare tokens and retries.
+                So -Query 'remember-this' now works without manual quoting;
+                .sanitized is $true when the retry path was used.
+                Use -Raw to disable the retry and surface the raw FTS5 error.
     .EXAMPLE    Search-Memory -Query "GCC DevBox"
-    .EXAMPLE    Search-Memory -Query "Orlando DSS" -Limit 5
+    .EXAMPLE    Search-Memory -Query "remember-this"      # hyphen handled automatically
+    .EXAMPLE    Search-Memory -Query 'Foundry OR Anthropic' -Limit 5
     #>
     param(
         [Parameter(Mandatory)][string]$Query,
-        [int]$Limit = 10
+        [int]$Limit = 10,
+        [switch]$Raw
     )
-    $results = Invoke-Memory @{ op="search_memory"; query=$Query; limit=$Limit }
-    $results
+    Invoke-Memory @{ op="search_memory"; query=$Query; limit=$Limit; raw=[bool]$Raw }
+}
+
+function Set-Identity {
+    <#
+    .SYNOPSIS   Set or correct the user's own entity — the Identity block in memory-context.md.
+    .DESCRIPTION
+                There is no `identity` table. The Identity section is rendered from
+                the entities row where is_self = 1. This guarantees exactly one
+                self row by demoting any other claimant.
+    .EXAMPLE    Set-Identity -Name "Vijay Cinnakonda" -Notes "Sr DSE, Cloud & AI Apps" -Attributes '{"fiscal_year":"FY27"}'
+    #>
+    param(
+        [Parameter(Mandatory)][string]$Name,
+        [ValidateSet('person','product','org','tool','account','concept','file')]
+        [string]$EntityType = "person",
+        [string]$Notes      = "",
+        [string]$Attributes = ""
+    )
+    Invoke-Memory @{ op="set_identity"; name=$Name; entity_type=$EntityType;
+                     notes=$Notes; attributes=$Attributes }
+}
+
+function Invoke-MemoryMigration {
+    <#
+    .SYNOPSIS   Idempotent upgrade + repair for databases written by older versions.
+    .DESCRIPTION
+                1. Backfills facts/topics whose last_accessed_at is NULL. Those rows
+                   sort LAST under ORDER BY last_accessed_at DESC, so facts added
+                   before the Add-Fact fix were invisible to Export-MemoryContext
+                   unless Touch-Fact was run by hand.
+                2. Upgrades the FTS index to schema v2 so topic slugs are searchable
+                   (Search-Memory -Query 'fy27-comp-plan' used to return nothing).
+                Safe to re-run. Use -ForceReindex to rebuild the index regardless.
+    .EXAMPLE    Invoke-MemoryMigration
+    .EXAMPLE    Invoke-MemoryMigration -ForceReindex
+    #>
+    param([switch]$ForceReindex)
+    $r = Invoke-Memory @{ op="migrate"; force_reindex=[bool]$ForceReindex }
+    Write-Host "🔧 Backfilled last_accessed_at → facts: $($r.facts_backfilled) | topics: $($r.topics_backfilled)"
+    if ($r.reindexed) {
+        Write-Host "🔁 FTS reindexed → $($r.reindexed.fts_rows) rows | schema v$($r.schema_version)"
+    } else {
+        Write-Host "   FTS already at schema v$($r.schema_version) — no reindex needed"
+    }
+    $r
 }
 
 function Matrix-Load {
@@ -237,14 +301,35 @@ function Matrix-Load {
 
 function Export-MemoryContext {
     <#
-    .SYNOPSIS   Generate memory-context.md from Tier-1 (identity+topics) and Tier-2 (high-importance facts).
-                This file is the bridge that all agents read at session start.
+    .SYNOPSIS   Generate memory-context.md — the bridge all agents read at session start.
+    .DESCRIPTION
+                Facts are selected with a PER-TOPIC quota rather than one global
+                slice, so no single hot topic can crowd out the others and
+                importance-4 facts stay reachable as the database grows. A small
+                reserved pool then admits importance-5 facts from anywhere else.
+                Also emits Where-I-Left-Off (latest snapshot per topic), Pending
+                Work (todo/action/question facts) and Known Entities.
+                All limits are tunable.
     .EXAMPLE    Export-MemoryContext
+    .EXAMPLE    Export-MemoryContext -TopicLimit 8 -PerTopicFacts 8 -MaxFacts 60
     #>
-    $result = Invoke-Memory @{ op="export_context" }
+    param(
+        [int]$TopicLimit    = 5,
+        [int]$PerTopicFacts = 6,
+        [int]$MaxFacts      = 40,
+        [ValidateRange(1,5)][int]$MinImportance = 4,
+        [int]$EntityLimit   = 15,
+        [int]$PendingLimit  = 10
+    )
+    $result = Invoke-Memory @{ op="export_context"; topic_limit=$TopicLimit;
+                               per_topic_facts=$PerTopicFacts; max_facts=$MaxFacts;
+                               min_importance=$MinImportance; entity_limit=$EntityLimit;
+                               pending_limit=$PendingLimit }
     if ($result -and $result.path) {
         Write-Host "✅ Memory context exported → $($result.path)"
-        Write-Host "   Topics: $($result.topics_loaded) | Facts: $($result.facts_loaded)"
+        Write-Host ("   Topics: {0} | Facts: {1} | Snapshots: {2} | Pending: {3} | Entities: {4}" -f `
+            $result.topics_loaded, $result.facts_loaded, $result.snapshots_loaded,
+            $result.pending_loaded, $result.entities_loaded)
     }
     $result
 }

@@ -44,6 +44,66 @@ Think of `memory.db` as the knowledge store. At every session **end**, the `sess
 | `test_session_end.py` | Tests for the sessionEnd hook |
 | `test_wiki_export.py` | Tests for wiki export |
 | `test_lint.py` | Tests for the lint command |
+| `test_memory_driver.py` | Tests for the driver: FTS sanitizing, recency, export fairness, identity, migration |
+
+Run everything:
+
+```powershell
+Set-Location .\long-term-memory
+$env:PYTHONIOENCODING = "utf-8"
+python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
+```
+
+---
+
+## Schema v2 — relevance & scalability fixes
+
+Six defects surfaced in real agent sessions. All are fixed, covered by tests, and
+repaired in existing databases by `Invoke-MemoryMigration`.
+
+| # | Symptom | Cause | Fix |
+|---|---------|-------|-----|
+| 1 | `Search-Memory -Query 'remember-this'` threw `no such column: this` | `-` and `:` are FTS5 operators, and the query was passed through verbatim | The driver runs your query as-is (so `OR` / `NOT` / `"phrase"` / `prefix*` still work) and, only if SQLite rejects it, auto-quotes bare tokens and retries. `-Raw` disables the retry. |
+| 2 | New facts never appeared in the bridge until `Touch-Fact` was run by hand | `add_fact` left `last_accessed_at` NULL, and NULLs sort **last** under `ORDER BY last_accessed_at DESC` | `Add-Fact` sets it on insert; re-asserting an existing fact refreshes it. **On the live database this had hidden 274 of 298 facts.** |
+| 3 | Importance-4 facts were written but never surfaced | One global `importance >= 4 ORDER BY importance DESC LIMIT 20` slice — 20 importance-5 facts starved everything else | Per-topic quota plus a reserved pool for importance-5 facts from other topics. Every limit is tunable. |
+| 4 | Entities, snapshots and open work were stored but invisible | The exporter only rendered identity, topics and facts | Added **Known Entities**, **Where I Left Off** (latest snapshot per topic) and **Pending Work** sections. |
+| 5 | Identity went stale and there was no obvious way to fix it | There is no `identity` table — it is the `entities` row with `is_self = 1` | New `Set-Identity`, which upserts in place and guarantees exactly one self row. |
+| 6 | `Search-Memory -Query 'fy27-comp-plan'` found nothing despite the topic existing | Topics were indexed as `title + description`; the slug you use everywhere was excluded | Slug added to the FTS index and `fts_resolved` view (**schema v2**). Existing databases are reindexed by `Invoke-MemoryMigration`. |
+
+Two robustness fixes shipped alongside:
+
+- **Markdown injection** — a fact body containing a line like `## Pre-flight check`
+  rendered as a real document heading and corrupted the structure of
+  `memory-context.md`. All rendered values are now flattened to a single line.
+- **`sys.stdin` rewrapped at import time** — `memory_driver.py`, `ltm_lint.py` and
+  `ltm_wiki_export.py` replaced `sys.stdin` on import, which broke
+  `unittest discover` with `ValueError: I/O operation on closed file`. It now
+  happens only under `__main__`.
+
+### Upgrading an existing database
+
+```powershell
+. .\memory.ps1
+Invoke-MemoryMigration      # backfills recency, reindexes FTS to v2. Safe to re-run.
+Export-MemoryContext
+```
+
+### Tuning the bridge
+
+```powershell
+Export-MemoryContext -TopicLimit 6 -PerTopicFacts 6 -MaxFacts 45
+```
+
+| Parameter | Default | Controls |
+|-----------|---------|----------|
+| `-TopicLimit` | 5 | How many active topics load |
+| `-PerTopicFacts` | 6 | Fact quota **per topic** — this is what guarantees fairness |
+| `-MaxFacts` | 40 | Hard ceiling on total facts |
+| `-MinImportance` | 4 | Minimum importance to qualify |
+| `-EntityLimit` | 15 | Entities listed |
+| `-PendingLimit` | 10 | `todo` / `action` / `question` facts listed |
+
+
 ## Quick Start
 
 ```powershell

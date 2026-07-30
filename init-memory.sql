@@ -9,7 +9,10 @@ PRAGMA foreign_keys = ON;
 -- ── schema_version ────────────────────────────────────────────────────
 -- Bump version integer on every schema change; never delete rows.
 CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
-INSERT INTO schema_version SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM schema_version);
+INSERT INTO schema_version SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM schema_version);
+-- v2: topic slug added to the FTS index and fts_resolved view so
+--     Search-Memory -Query 'fy27-comp-plan' finds the topic you named.
+--     Existing databases are upgraded in place by the `migrate` op.
 
 -- ── topics ────────────────────────────────────────────────────────────
 -- Named subjects of ongoing interest. Equivalent to a session in session-store.
@@ -171,13 +174,13 @@ END;
 CREATE TRIGGER IF NOT EXISTS fts_topics_insert AFTER INSERT ON topics
 BEGIN
   INSERT INTO memory_fts(content, row_id, table_name)
-  VALUES (NEW.title || ' ' || COALESCE(NEW.description, ''), NEW.id, 'topics');
+  VALUES (NEW.slug || ' ' || NEW.title || ' ' || COALESCE(NEW.description, ''), NEW.id, 'topics');
 END;
 CREATE TRIGGER IF NOT EXISTS fts_topics_update AFTER UPDATE ON topics
 BEGIN
   DELETE FROM memory_fts WHERE row_id = OLD.id AND table_name = 'topics';
   INSERT INTO memory_fts(content, row_id, table_name)
-  VALUES (NEW.title || ' ' || COALESCE(NEW.description, ''), NEW.id, 'topics');
+  VALUES (NEW.slug || ' ' || NEW.title || ' ' || COALESCE(NEW.description, ''), NEW.id, 'topics');
 END;
 CREATE TRIGGER IF NOT EXISTS fts_topics_delete AFTER DELETE ON topics
 BEGIN
@@ -229,6 +232,6 @@ CREATE VIEW IF NOT EXISTS fts_resolved AS
   UNION ALL
   SELECT 'entities'  AS src, id, name || ' ' || COALESCE(notes,'')                     AS text, entity_type AS subtype FROM entities
   UNION ALL
-  SELECT 'topics'    AS src, id, title || ' ' || COALESCE(description,'')              AS text, category    AS subtype FROM topics
+  SELECT 'topics'    AS src, id, slug || ' ' || title || ' ' || COALESCE(description,'') AS text, category   AS subtype FROM topics
   UNION ALL
   SELECT 'snapshots' AS src, id, COALESCE(summary,'') || ' ' || COALESCE(findings,'')  AS text, NULL        AS subtype FROM snapshots;

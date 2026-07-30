@@ -17,7 +17,13 @@ import os
 import io
 import re
 
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
+def _ensure_utf8_stdin():
+    """Force UTF-8 stdin. Called from __main__ only — see memory_driver.py."""
+    try:
+        if sys.stdin is not None and hasattr(sys.stdin, "buffer"):
+            sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
+    except (ValueError, AttributeError):
+        pass
 
 DEFAULT_DB = os.path.join(os.environ.get("USERPROFILE", os.path.expanduser("~")),
                           ".copilot", "memory.db")
@@ -238,6 +244,7 @@ def run_lint(payload=None):
 
 
 if __name__ == "__main__":
+    _ensure_utf8_stdin()
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         result = run_lint(payload)
