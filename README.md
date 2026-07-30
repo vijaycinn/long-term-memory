@@ -162,6 +162,44 @@ The worst-case search column uses a term present in a large fraction of rows, so
 bm25 must score everything it matches; a *selective* term stays flat at ~7 ms
 regardless of size, which is the realistic case.
 
+### The real bottleneck is no longer the database
+
+Once the queries were fixed, measuring the PowerShell layer end-to-end showed
+something the in-process benchmark hides:
+
+| Layer | Cost |
+|---|---:|
+| `python -c pass` (interpreter startup) | **435 ms** |
+| + `import memory_driver` | 519 ms |
+| `export_context` — actual database work | **39 ms** |
+| `search` — actual database work | **5 ms** |
+
+Roughly **93 % of wall-clock time is Python process startup**, not SQLite. Every
+`Invoke-Memory` call spawns a fresh interpreter, so a command that chained
+three ops paid that cost three times.
+
+The `batch` op collapses several ops into one spawn. `Remember-This` — the most
+frequently used command — now runs `add_topic` + `add_fact` + `export_context`
+in a single interpreter:
+
+| `Remember-This` | Latency |
+|---|---:|
+| Before (3 spawns) | 1 543 ms |
+| After (1 spawn) | **676 ms** |
+| | **2.3× faster** |
+
+```powershell
+# Any sequence of ops, one interpreter start
+Invoke-Memory @{ op="batch"; ops=@(
+    @{ op="add_topic"; slug="q3-review"; title="Q3 Review"; category="career" },
+    @{ op="add_fact";  content="..."; topic_slug="q3-review"; importance=5 },
+    @{ op="export_context" }
+)}
+```
+
+`add_fact` accepts `topic_slug` directly so a batch never needs a round trip to
+resolve the topic id.
+
 ---
 
 ## Keeping it healthy as topics accumulate

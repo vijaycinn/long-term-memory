@@ -393,5 +393,54 @@ class TestMarkdownSafety(DriverTestCase):
         self.assertEqual(md._md_inline(None), "")
 
 
+class TestBatch(DriverTestCase):
+    """Process startup dominates latency; batching must collapse it safely."""
+
+    def test_runs_all_ops_in_order(self):
+        res = md.batch(self.base(ops=[
+            {"op": "add_topic", "slug": "b1", "title": "B1", "category": "research"},
+            {"op": "add_fact", "content": "batched fact", "topic_slug": "b1",
+             "importance": 5},
+            {"op": "export_context"},
+        ]))
+        self.assertEqual(len(res["results"]), 3)
+        self.assertIn("topic_id", res["results"][0])
+        self.assertTrue(res["results"][1]["inserted"])
+        self.assertIn("path", res["results"][2])
+
+    def test_topic_slug_is_resolved(self):
+        # Regression: passing topic_slug used to silently create a GLOBAL fact.
+        md.batch(self.base(ops=[
+            {"op": "add_topic", "slug": "b2", "title": "B2", "category": "research"},
+            {"op": "add_fact", "content": "attached fact", "topic_slug": "b2"},
+        ]))
+        rows = self.raw(
+            "SELECT t.slug FROM facts f JOIN topics t ON t.id=f.topic_id "
+            "WHERE f.content='attached fact'")
+        self.assertEqual(rows[0][0], "b2")
+
+    def test_inherits_db_path(self):
+        res = md.batch(self.base(ops=[{"op": "get_stats"}]))
+        self.assertIn("facts", res["results"][0])
+
+    def test_one_failure_does_not_abort_the_batch(self):
+        res = md.batch(self.base(ops=[
+            {"op": "nonexistent_op"},
+            {"op": "add_topic", "slug": "b3", "title": "B3", "category": "research"},
+        ]))
+        self.assertIn("error", res["results"][0])
+        self.assertIn("topic_id", res["results"][1])
+
+    def test_batched_fact_reaches_the_bridge(self):
+        md.batch(self.base(ops=[
+            {"op": "add_topic", "slug": "b4", "title": "B4", "category": "research"},
+            {"op": "add_fact", "content": "end to end batched", "topic_slug": "b4",
+             "importance": 5},
+            {"op": "export_context"},
+        ]))
+        body = open(self.ctx_path, encoding="utf-8").read()
+        self.assertIn("end to end batched", body)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

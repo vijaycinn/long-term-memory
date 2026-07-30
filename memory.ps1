@@ -113,9 +113,21 @@ function Remember-This {
         [string]$Source = "Explicit user memory request"
     )
 
-    $fact = Add-Fact -Content $Content -TopicSlug $TopicSlug -FactType $FactType `
-                     -Confidence $Confidence -Importance $Importance -Source $Source
-    $ctx = Export-MemoryContext
+    $fact = $null
+    $ctx  = $null
+
+    # One interpreter start instead of three. Python process startup (~0.5s) is
+    # far larger than the database work (~40ms), so batching is the single
+    # biggest win available to this command.
+    $ops = @(
+        @{ op="add_topic"; slug=$TopicSlug; title=$TopicSlug; category="research" },
+        @{ op="add_fact"; content=$Content; topic_slug=$TopicSlug; fact_type=$FactType;
+           confidence=$Confidence; importance=$Importance; source=$Source },
+        @{ op="export_context" }
+    )
+    $r = Invoke-Memory @{ op="batch"; ops=$ops }
+    $fact = $r.results[1]
+    $ctx  = $r.results[2]
 
     [pscustomobject]@{
         remembered   = $true

@@ -100,6 +100,14 @@ def add_fact(p):
     session_id = p.get("session_id", "")
     now = _now()
     with get_conn(_db_path(p)) as conn:
+        # Accept a slug directly so callers (and batch steps) do not need a
+        # separate round trip to resolve the topic id.
+        if topic_id is None and p.get("topic_slug"):
+            row = conn.execute(
+                "SELECT id FROM topics WHERE slug=?", (p["topic_slug"],)
+            ).fetchone()
+            if row:
+                topic_id = row[0]
         # SQLite UNIQUE(topic_id, content) treats NULL != NULL, so global facts (topic_id=NULL)
         # are NOT caught by the constraint. Always pre-check with IS for NULL-safe comparison.
         existing = conn.execute(
@@ -780,6 +788,37 @@ def export_context(p=None):
     }
 
 
+def batch(p):
+    """Run several ops inside a single interpreter start.
+
+    Python process startup dominates real-world latency: on a typical Windows
+    box `python -c pass` costs ~435 ms and importing this module ~519 ms, while
+    the database work behind a session start is ~39 ms. Commands that chained
+    several ops therefore paid the interpreter cost several times over.
+    Batching collapses that to one spawn.
+
+    Each step is a full op payload; db_path / context_path set at the top level
+    are inherited unless a step overrides them. A failing step is captured
+    rather than aborting the batch.
+    """
+    results = []
+    for step in p.get("ops", []):
+        op = step.get("op")
+        fn = DISPATCH.get(op)
+        if fn is None:
+            results.append({"error": f"unknown op: {op}"})
+            continue
+        merged = dict(step)
+        for inherited in ("db_path", "context_path"):
+            if p.get(inherited) and inherited not in merged:
+                merged[inherited] = p[inherited]
+        try:
+            results.append(fn(merged))
+        except Exception as exc:                     # noqa: BLE001 - reported, not raised
+            results.append({"error": str(exc), "type": type(exc).__name__})
+    return {"results": results}
+
+
 def get_stats(p=None):
     """Quick stats for debugging / status display."""
     with get_conn(_db_path(p or {})) as conn:
@@ -809,6 +848,7 @@ DISPATCH = {
     "migrate":        migrate,
     "reindex_fts":    reindex_fts,
     "optimize_db":    optimize_db,
+    "batch":          batch,
     "get_stats":      get_stats,
 }
 
