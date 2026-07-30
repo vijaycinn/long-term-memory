@@ -10,7 +10,7 @@ design together, and how to extend it safely.
 | **Schema version** | **3** |
 | Driver ops | 15 |
 | PowerShell cmdlets | 24 |
-| Tests | **130** across 6 files |
+| Tests | **132** across 6 files |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
 
@@ -117,6 +117,7 @@ now covered by a test. **If you change the relevant code, run the tests.**
 | 16 | `topic_slug` in a batch silently created a **global** fact | `add_fact` only accepted `topic_id` | `add_fact` resolves `topic_slug` | `TestBatch` |
 | 17 | `memory_export.py` crashed on Windows *after* writing the file | Emoji printed to a cp1252 console → `UnicodeEncodeError`, so success looked like failure | Force UTF-8 stdout | — |
 | 18 | JSON export silently dropped **194 rows** of behavioural memory | The table list omitted `ltm_patterns` (138) and `ltm_session_log` (56); only `memory_fts*` should be excluded, since that alone is derived | Both added; portable export exposes them as `patterns` / `sessions` | — |
+| 19 | `add_snapshot` with `topic_slug` raised `KeyError('topic_id')` and the snapshot was **silently lost** | Same gap as #16 in a different op — only `topic_id` was accepted | Resolves `topic_slug`; returns a clear error for an unknown slug | `TestBatch` |
 
 ---
 
@@ -241,14 +242,15 @@ python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
 
 | File | Tests | Covers |
 |------|------:|--------|
-| `test_memory_driver.py` | 44 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
+| `test_memory_driver.py` | 46 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
 | `test_lint.py` | 14 | Health checks |
 | `test_session_start.py` | 9 | sessionStart hook |
 | `test_session_end.py` | 8 | sessionEnd hook |
-| **Total** | **130** | |
+| **Total** | **132** | |
 
 **A change to trigger definitions, `export_context`, or `search_memory` must be
 accompanied by a benchmark run.** The tests prove correctness; only the
 benchmark proves you did not reintroduce defect #9.
+

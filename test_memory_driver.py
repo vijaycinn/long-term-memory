@@ -441,6 +441,24 @@ class TestBatch(DriverTestCase):
         body = open(self.ctx_path, encoding="utf-8").read()
         self.assertIn("end to end batched", body)
 
+    def test_add_snapshot_accepts_topic_slug(self):
+        # Regression: add_snapshot required topic_id and raised
+        # KeyError('topic_id') on topic_slug, silently losing the snapshot.
+        md.batch(self.base(ops=[
+            {"op": "add_topic", "slug": "b5", "title": "B5", "category": "research"},
+        ]))
+        res = md.add_snapshot(self.base(topic_slug="b5", title="Slug snapshot",
+                                        next_steps="carry on"))
+        self.assertEqual(res["seq_number"], 1)
+        rows = self.raw(
+            "SELECT s.title FROM snapshots s JOIN topics t ON t.id=s.topic_id "
+            "WHERE t.slug='b5'")
+        self.assertEqual(rows[0][0], "Slug snapshot")
+
+    def test_add_snapshot_reports_unknown_slug(self):
+        res = md.add_snapshot(self.base(topic_slug="does-not-exist", title="x"))
+        self.assertIn("error", res)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -159,7 +159,7 @@ def add_entity(p):
 
 
 def add_snapshot(p):
-    topic_id = p["topic_id"]
+    topic_id = p.get("topic_id")
     title = p["title"]
     summary = p.get("summary", "")
     findings = p.get("findings", "")
@@ -168,6 +168,17 @@ def add_snapshot(p):
     next_steps = p.get("next_steps", "")
     source_session = p.get("source_session", "")
     with get_conn(_db_path(p)) as conn:
+        # Accept a slug directly, matching add_fact. Without this a batch step
+        # passing topic_slug raised KeyError('topic_id') and the snapshot was
+        # silently lost.
+        if topic_id is None and p.get("topic_slug"):
+            row = conn.execute(
+                "SELECT id FROM topics WHERE slug=?", (p["topic_slug"],)
+            ).fetchone()
+            if row:
+                topic_id = row[0]
+        if topic_id is None:
+            return {"error": "add_snapshot requires topic_id or a known topic_slug"}
         # seq_number is per-topic, not global
         cur_seq = conn.execute(
             "SELECT COALESCE(MAX(seq_number), 0) + 1 FROM snapshots WHERE topic_id=?",

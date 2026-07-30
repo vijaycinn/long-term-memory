@@ -72,7 +72,7 @@ python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
 
 ## Schema v2 — relevance & scalability fixes
 
-Six defects surfaced in real agent sessions. All are fixed, covered by tests, and
+Nineteen defects surfaced in real agent sessions. All are fixed, covered by tests, and
 repaired in existing databases by `Invoke-MemoryMigration`.
 
 | # | Symptom | Cause | Fix |
@@ -476,3 +476,4 @@ Get-MemoryStats
 ```
 
 If those succeed, the system is installed correctly.
+
