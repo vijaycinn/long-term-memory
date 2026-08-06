@@ -139,8 +139,9 @@ def extract_facts(turns, mc, sid):
         tid = _match_topic(content, mc, tc)
         if mc.execute("SELECT id FROM facts WHERE topic_id IS ? AND content=?", (tid, content)).fetchone():
             continue
-        mc.execute("INSERT INTO facts(topic_id,content,fact_type,confidence,importance,source,session_id) "
-                   "VALUES(?,?,?,?,?,?,?)", (tid, content, ft, 3, 4, "auto-extracted from session", sid))
+        mc.execute("INSERT INTO facts(topic_id,content,fact_type,confidence,importance,source,"
+                   "session_id,last_accessed_at) VALUES(?,?,?,?,?,?,?,datetime('now'))",
+                   (tid, content, ft, 3, 4, "auto-extracted from session", sid))
         count += 1
     return count
 
@@ -158,8 +159,9 @@ def extract_pending_work(turns, reason, mc, sid):
             content = f"Pending: ...{snip}..."
             if mc.execute("SELECT id FROM facts WHERE content=? AND session_id=?", (content, sid)).fetchone():
                 continue
-            mc.execute("INSERT INTO facts(topic_id,content,fact_type,confidence,importance,source,session_id) "
-                       "VALUES(?,?,?,?,?,?,?)", (None, content, "todo", 2, 4,
+            mc.execute("INSERT INTO facts(topic_id,content,fact_type,confidence,importance,source,"
+                       "session_id,last_accessed_at) VALUES(?,?,?,?,?,?,?,datetime('now'))",
+                       (None, content, "todo", 2, 4,
                        "auto-extracted from session (pending work)", sid))
             return 1
     return 0
@@ -219,6 +221,30 @@ def process_session(hook_input, *, memory_db=None, store_path=None):
     mc.commit(); mc.close()
     return {"session_id": sid, "facts": fact_n, "entities": ent_n, "patterns": pats}
 
+def sync_agent_memory(hook_input, since_hours=48):
+    """Replay harness `store_memory` calls into the local store.
+
+    The agent-facing `store_memory` tool writes to the harness's own memory
+    service, which `export_context` never reads, so those facts are invisible at
+    the next session start. Running this before refresh_ltm_instructions means
+    anything the agent saved this session lands in the regenerated bridge.
+
+    Bounded by since_hours because the event logs are tens of MB each and a full
+    scan of every session would make the hook slow. Best-effort: a sync problem
+    must never break session end.
+    """
+    try:
+        _this_dir = os.path.dirname(os.path.abspath(__file__))
+        sys.path.insert(0, _this_dir)
+        import memory_driver
+        return memory_driver.sync_agent_memory({
+            "db_path": hook_input.get("memory_db") or DEFAULT_DB,
+            "since_hours": since_hours,
+        })
+    except Exception:
+        return None
+
+
 def refresh_ltm_instructions(hook_input):
     """Re-generate the LTM block in copilot-instructions.md so the NEXT session loads it."""
     try:
@@ -264,6 +290,11 @@ def main():
     except (json.JSONDecodeError, EOFError): hook_input = {}
     try: process_session(hook_input)
     except Exception: pass  # hooks must never crash
+    # Pull in anything saved via the harness `store_memory` tool this session,
+    # which otherwise lives only in the harness's own store and never reaches
+    # the bridge. Must run BEFORE refresh_ltm_instructions so those facts are
+    # included in the regenerated context.
+    sync_agent_memory(hook_input)
     # After extracting new facts/entities, refresh the LTM instructions file
     # so the NEXT session starts with up-to-date memory context already baked in.
     refresh_ltm_instructions(hook_input)

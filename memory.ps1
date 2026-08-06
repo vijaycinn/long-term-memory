@@ -410,6 +410,56 @@ function Get-MemoryStats {
     $stats | Format-List
 }
 
+function Sync-AgentMemory {
+    <#
+    .SYNOPSIS   Import facts saved via the harness `store_memory` tool into memory.db.
+    .DESCRIPTION
+        The agent-facing `store_memory` tool writes to the harness's own memory
+        service, which Export-MemoryContext cannot read — so those facts never
+        reach the bridge and are invisible at the next session start, while
+        Add-Fact writes are invisible to the harness. Every call is recorded in
+        the local session event log, which this replays.
+
+        Idempotent: dedup is on (topic, content), so re-running only refreshes
+        recency. Facts later downvoted with vote_memory are marked superseded
+        rather than resurrected.
+
+        Runs automatically at session end (bounded to 48h). Use -SinceHours 0
+        for a full historical backfill.
+    .EXAMPLE    Sync-AgentMemory -WhatIf
+    .EXAMPLE    Sync-AgentMemory                 # last 48h
+    .EXAMPLE    Sync-AgentMemory -SinceHours 0   # full backfill, all sessions
+    #>
+    param(
+        [int]$SinceHours = 48,
+        [int]$Importance = 4,
+        [string]$TopicSlug,
+        [int]$MaxSessions,
+        [switch]$WhatIf
+    )
+    $payload = @{ op = "sync_agent_memory"; importance = $Importance }
+    if ($SinceHours -gt 0)    { $payload.since_hours  = $SinceHours }
+    if ($TopicSlug)           { $payload.topic_slug   = $TopicSlug }
+    if ($MaxSessions -gt 0)   { $payload.max_sessions = $MaxSessions }
+    if ($WhatIf)              { $payload.dry_run      = $true }
+
+    $r = Invoke-Memory $payload
+    if ($r.error) { Write-Host "❌ $($r.error)" -ForegroundColor Red; return $r }
+
+    if ($WhatIf) {
+        Write-Host "🔍 Dry run — found $($r.calls_found) store_memory call(s), nothing written" -ForegroundColor Cyan
+        if ($r.would_insert) { $r.would_insert | ForEach-Object { Write-Host "   • $_" -ForegroundColor DarkGray } }
+    } else {
+        Write-Host "🔗 Agent memory synced" -ForegroundColor Green
+        Write-Host "   Found: $($r.calls_found) | Inserted: $($r.inserted) | Already present: $($r.already_present)" -ForegroundColor Gray
+        Write-Host "   Topics created: $($r.topics_created) | Superseded (downvoted): $($r.superseded)" -ForegroundColor Gray
+        if ($r.inserted -gt 0) {
+            Write-Host "   Run Export-MemoryContext to surface them in the bridge." -ForegroundColor DarkGray
+        }
+    }
+    return $r
+}
+
 function Sync-Memento {
     <#
     .SYNOPSIS   Bidirectional sync between LTM (memory.db) and Memento (memento.db).

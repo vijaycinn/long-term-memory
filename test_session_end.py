@@ -166,6 +166,39 @@ class TestSessionEnd(unittest.TestCase):
         self.assertIn("preference", types)
         conn.close()
 
+    def test_every_extracted_fact_is_visible_to_the_bridge(self):
+        """Contract, not a single-path check.
+
+        `export_context` orders by `last_accessed_at` and NULLs sort last, so a
+        fact inserted without it is stored but never rendered — present in the
+        database, absent from the agent's context. Both extraction paths
+        (decisions and pending work) had this bug. Asserting across *all* rows
+        means a third insert path cannot silently reintroduce it.
+        """
+        sessions = [{"id": "s9", "cwd": "/workspace/agency", "summary": "Mixed session"}]
+        turns = [
+            {"session_id": "s9", "turn_index": 0,
+             "user_message": "let's go with Azure Functions for the webhook handler",
+             "assistant_response": "Sounds good."},
+            {"session_id": "s9", "turn_index": 1,
+             "user_message": "still need to wire up the retry policy",
+             "assistant_response": "Noted as pending."},
+        ]
+        self._setup_dbs(sessions, turns)
+        process_session(
+            {"cwd": "/workspace/agency", "reason": "abort"},
+            memory_db=self.memory_path,
+            store_path=Path(self.store_path),
+        )
+        conn = get_conn(self.memory_path)
+        total = conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0]
+        orphaned = conn.execute(
+            "SELECT COUNT(*) FROM facts WHERE last_accessed_at IS NULL").fetchone()[0]
+        conn.close()
+        self.assertGreater(total, 0, "no facts extracted — test proves nothing")
+        self.assertEqual(orphaned, 0,
+                         f"{orphaned} of {total} extracted facts are invisible to export_context")
+
     # ── Test: pending work detection ──────────────────────────────────
 
     def test_pending_work_on_abort(self):

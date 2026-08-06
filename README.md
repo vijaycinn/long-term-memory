@@ -29,7 +29,40 @@ Think of `memory.db` as the knowledge store. At every session **end**, the `sess
 - Merges LTM context into `~/.copilot/copilot-instructions.md` using `<!-- LTM-START -->` / `<!-- LTM-END -->` markers, preserving any other instructions in that file
 - Supports full-text search across memory
 - Lets agents save durable knowledge on cue with `Remember-This`
+- **Absorbs facts the agent saved with the harness `store_memory` tool**, which land in a separate store the bridge cannot read (see [Two stores, one memory](#two-stores-one-memory))
 - Can be copied or restored on a new machine
+
+---
+
+## Two stores, one memory
+
+Copilot exposes its own `store_memory` tool. It writes to the harness's memory
+service — **not** to `memory.db`. So a fact saved that way is never rendered into
+the bridge and is invisible at the next session start, while everything written
+with `Add-Fact` is invisible to the harness. Two stores drift apart in silence,
+and each looks perfectly healthy on its own. On this machine 112 facts had
+accumulated on the wrong side of that gap before it was noticed.
+
+Every `store_memory` call is, however, recorded locally in
+`~/.copilot/session-state/<id>/events.jsonl`. `Sync-AgentMemory` replays them
+into SQLite, so both paths converge on one store.
+
+```powershell
+Sync-AgentMemory -WhatIf        # preview: what would be imported
+Sync-AgentMemory                # last 48h
+Sync-AgentMemory -SinceHours 0  # full historical backfill (~30s over ~500 sessions)
+Export-MemoryContext            # surface them in the bridge
+```
+
+It runs automatically at session end over a 48-hour window, so no action is
+needed day to day. Three properties worth knowing:
+
+- **Idempotent.** Dedup is on `(topic, content)`; re-running imports nothing new.
+- **Honours retractions.** A fact later downvoted with `vote_memory` is marked
+  `superseded` rather than resurrected.
+- **Preserves real recency.** Imported rows carry the time the memory was
+  *stored*, not the time it was imported — otherwise every imported topic looks
+  freshly used and pushes live work out of the bridge.
 
 ---
 

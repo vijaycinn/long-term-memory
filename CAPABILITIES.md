@@ -75,6 +75,7 @@ by maintenance once cold. **Retire, don't delete** — `export_context` only rea
 | `reindex_fts` | Rebuild the FTS index (v2 topic-slug indexing). |
 | `optimize_db` | Apply v3 guarded triggers + covering indexes. |
 | `get_stats` | Row counts and schema version. |
+| `sync_agent_memory` | Replay harness `store_memory` calls from the session event log into this store. Honours later `vote_memory` downvotes. |
 
 ### PowerShell surface
 
@@ -82,6 +83,7 @@ Capture: `Add-Fact`, `Remember-This`, `Add-Topic`, `Add-Entity`, `Add-Snapshot`,
 Retrieve: `Search-Memory`, `Get-Topic`, `Get-MemoryStats`, `Matrix-Load`, `Export-MemoryContext`
 Maintain: `Invoke-MemoryMigration`, `Invoke-MemoryMaintenance`, `Lint-Memory`, `Export-Wiki`
 Continuity: `Backup-Memory`, `Get-MemoryBackupStatus`, `Restore-Memory`, `Export-MemoryVersion`
+Sync: `Sync-AgentMemory` (`-WhatIf` to preview, `-SinceHours 0` for a full backfill)
 
 ---
 
@@ -120,6 +122,15 @@ now covered by a test. **If you change the relevant code, run the tests.**
 | 19 | `add_snapshot` with `topic_slug` raised `KeyError('topic_id')` and the snapshot was **silently lost** | Same gap as #16 in a different op — only `topic_id` was accepted | Resolves `topic_slug`; returns a clear error for an unknown slug | `TestBatch` |
 | 20 | `touch_topic` took `slug` while `add_fact` / `add_snapshot` took `topic_slug` | Inconsistent key naming across topic-referencing ops — same trap, but at least it failed loudly | `topic_slug` accepted as an alias; unknown slug now errors instead of silently updating nothing | `TestTopicReferenceContract` |
 
+### Store divergence
+
+| # | Defect | Root cause | Fix | Guarded by |
+|---|--------|-----------|-----|-----------|
+| 21 | **112 facts saved by the agent were missing from the store.** Anything captured with the harness `store_memory` tool never reached the bridge, so it was invisible at session start — while `Add-Fact` writes were invisible to the harness. Two stores diverging in silence, and *both* looked healthy in isolation | `store_memory` writes to the harness's own memory service. `export_context` reads SQLite. Nothing connected them | `sync_agent_memory` replays `store_memory` calls out of `session-state/<id>/events.jsonl`, the one place they are recorded locally. Wired into `ltm_session_end` (48 h window) so it stays in sync unattended | `TestSyncAgentMemory` |
+| 22 | The first cut of #21 **evicted every genuinely active topic from the bridge** | Imported rows were stamped `now()`, so all 68 imported topics looked freshly used and won the `ORDER BY last_accessed_at` | Use the event's own timestamp; a re-sync corrects recency *backwards* but never bumps it forward, since replaying history is not a fresh relevance signal | `test_recency_uses_event_time_not_sync_time`, `test_resync_does_not_bump_recency_forward` |
+| 23 | A re-sync would have **resurrected facts the agent had retracted** | `vote_memory` downvotes live only in the harness store; a naive replay of the original `store_memory` call reinstates the stale claim | Downvotes are read from the same event log and the matching fact is set `status='superseded'` (invariant 8: retire, don't delete) | `test_downvoted_fact_is_retired_not_resurrected` |
+| 24 | **Auto-extracted facts were stored but never rendered.** Found while auditing #21 — same invisibility, different cause | Both `extract_facts` and `extract_pending_work` inserted without `last_accessed_at`; NULLs sort last so `export_context` never reached them. The row existed, so every count and integrity check looked healthy | Both inserts set `datetime('now')`; `Invoke-MemoryMigration` backfills existing rows | `test_every_extracted_fact_is_visible_to_the_bridge` — asserts across *all* rows, so a third insert path cannot reintroduce it |
+
 ---
 
 ## 4. Invariants — breaking these breaks the system
@@ -139,6 +150,9 @@ now covered by a test. **If you change the relevant code, run the tests.**
 8. **Retire, don't delete.** Set `status='superseded'`.
 9. **Minimise call count, not query size.** Process spawn dominates. Use `batch`.
 10. **Hooks must never raise.** `ltm_session_end` swallows everything.
+11. **Imported memory carries the time it was stored, not the time it was
+    imported.** Stamping `now()` on a replay makes stale topics look hot and
+    pushes live work out of the bridge.
 
 ---
 

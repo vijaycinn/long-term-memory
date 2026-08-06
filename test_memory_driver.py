@@ -14,6 +14,8 @@ Each test class maps to a defect observed in real agent sessions:
 """
 
 import os
+import json
+import time
 import sqlite3
 import tempfile
 import shutil
@@ -474,39 +476,71 @@ class TestTopicReferenceContract(DriverTestCase):
     forgets slug resolution fails here rather than in production.
     """
 
-    #  op name -> payload builder, given a slug
+    #  op name -> payload builder, given the test case and a slug
     TOPIC_OPS = {
-        "add_fact":     lambda slug: {"content": f"contract probe {slug}", "topic_slug": slug},
-        "add_snapshot": lambda slug: {"title": "contract probe", "topic_slug": slug},
-        "touch_topic":  lambda slug: {"topic_slug": slug},
+        "add_fact":     lambda t, slug: {"content": f"contract probe {slug}", "topic_slug": slug},
+        "add_snapshot": lambda t, slug: {"title": "contract probe", "topic_slug": slug},
+        "touch_topic":  lambda t, slug: {"topic_slug": slug},
+        "sync_agent_memory": lambda t, slug: {"topic_slug": slug, "session_root": t.sessions},
     }
+
+    # Ops that deliberately do NOT error on an unknown slug. Each must document
+    # what it does instead, and assert it in test_documented_degradation.
+    #   add_fact          -> degrades to a global fact
+    #   sync_agent_memory -> upserts the topic; importing is pointless otherwise,
+    #                        since every store_memory subject is a new topic
+    TOLERATES_UNKNOWN_SLUG = {"add_fact", "sync_agent_memory"}
 
     def setUp(self):
         super().setUp()
         self.slug = "contract-topic"
         self.topic_id = self.topic(self.slug)
+        # Fixture so sync_agent_memory has something to import; without it the op
+        # would no-op and pass the contract vacuously.
+        self.sessions = os.path.join(self.test_dir, "session-state")
+        os.makedirs(os.path.join(self.sessions, "s1"), exist_ok=True)
+        with open(os.path.join(self.sessions, "s1", "events.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({
+                "type": "tool.execution_start",
+                "data": {"toolName": "store_memory",
+                         "arguments": {"fact": "contract probe fact",
+                                       "subject": "ignored when slug forced",
+                                       "scope": "user", "citations": "c"}},
+            }) + "\n")
 
     def test_every_topic_op_accepts_topic_slug(self):
         for op, build in self.TOPIC_OPS.items():
             with self.subTest(op=op):
-                res = md.DISPATCH[op](self.base(**build(self.slug)))
+                res = md.DISPATCH[op](self.base(**build(self, self.slug)))
                 self.assertNotIn("error", res, f"{op} rejected topic_slug: {res}")
 
     def test_every_topic_op_reports_an_unknown_slug(self):
-        # The failure mode that hurt was silence. An unknown slug must be loud.
+        # The failure mode that hurt was silence. An unknown slug must be loud,
+        # unless the op documents a deliberate degradation below.
         for op, build in self.TOPIC_OPS.items():
-            if op == "add_fact":
-                # add_fact intentionally degrades to a global fact rather than
-                # failing, so assert that explicitly instead.
+            if op in self.TOLERATES_UNKNOWN_SLUG:
                 continue
             with self.subTest(op=op):
-                res = md.DISPATCH[op](self.base(**build("no-such-topic")))
+                res = md.DISPATCH[op](self.base(**build(self, "no-such-topic")))
                 self.assertIn("error", res, f"{op} silently accepted an unknown slug")
+
+    def test_documented_degradation(self):
+        """Ops exempt from the loud-failure rule must behave as documented."""
+        md.add_fact(self.base(content="degrades to global", topic_slug="no-such-topic"))
+        self.assertEqual(
+            self.raw("SELECT topic_id FROM facts WHERE content='degrades to global'")[0][0],
+            None, "add_fact should degrade to a global fact")
+
+        md.sync_agent_memory(self.base(session_root=self.sessions, topic_slug="brand-new-topic"))
+        self.assertTrue(
+            self.raw("SELECT 1 FROM topics WHERE slug='brand-new-topic'"),
+            "sync_agent_memory should upsert an unknown slug")
 
     def test_slug_actually_attaches_the_row(self):
         # Not just "no error" — the row must land on the right topic.
         md.add_fact(self.base(content="attached by contract", topic_slug=self.slug))
         md.add_snapshot(self.base(title="attached by contract", topic_slug=self.slug))
+        md.sync_agent_memory(self.base(session_root=self.sessions, topic_slug=self.slug))
 
         fact_topic = self.raw(
             "SELECT t.slug FROM facts f JOIN topics t ON t.id=f.topic_id "
@@ -514,8 +548,13 @@ class TestTopicReferenceContract(DriverTestCase):
         snap_topic = self.raw(
             "SELECT t.slug FROM snapshots s JOIN topics t ON t.id=s.topic_id "
             "WHERE s.title='attached by contract'")
+        sync_topic = self.raw(
+            "SELECT t.slug FROM facts f JOIN topics t ON t.id=f.topic_id "
+            "WHERE f.content='contract probe fact'")
         self.assertEqual(fact_topic[0][0], self.slug)
         self.assertEqual(snap_topic[0][0], self.slug)
+        self.assertEqual(sync_topic[0][0], self.slug,
+                         "sync_agent_memory ignored the forced topic_slug")
 
     def test_touch_topic_still_accepts_legacy_slug_key(self):
         res = md.touch_topic(self.base(slug=self.slug))
@@ -543,6 +582,166 @@ def _has_source(fn):
         return True
     except OSError:
         return False
+
+
+class TestSyncAgentMemory(DriverTestCase):
+    """sync_agent_memory replays harness store_memory calls into the local store.
+
+    Regression guard for the two-store disconnect: facts saved through the
+    agent-facing `store_memory` tool live only in the harness's own memory
+    service, so export_context never sees them and they vanish at session start.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.sessions = os.path.join(self.test_dir, "session-state")
+        os.makedirs(self.sessions)
+
+    def write_session(self, session_id, events):
+        d = os.path.join(self.sessions, session_id)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "events.jsonl"), "w", encoding="utf-8") as fh:
+            for e in events:
+                fh.write(json.dumps(e) + "\n")
+
+    @staticmethod
+    def call(tool, args):
+        return {"type": "tool.execution_start",
+                "data": {"toolName": tool, "arguments": args}}
+
+    @staticmethod
+    def store(fact, subject="testing", scope="user", citations="cite"):
+        return TestSyncAgentMemory.call("store_memory", {
+            "fact": fact, "subject": subject, "scope": scope,
+            "citations": citations, "reason": "because"})
+
+    def sync(self, **kw):
+        return md.sync_agent_memory(self.base(session_root=self.sessions, **kw))
+
+    def test_imports_facts_and_derives_topic_from_subject(self):
+        self.write_session("s1", [self.store("Junctions beat copies", subject="skill installation")])
+        r = self.sync()
+        self.assertEqual(r["inserted"], 1)
+        rows = self.raw("SELECT f.content, t.slug FROM facts f JOIN topics t ON t.id=f.topic_id")
+        self.assertEqual(rows[0][0], "Junctions beat copies")
+        self.assertEqual(rows[0][1], "skill-installation")
+
+    def test_is_idempotent(self):
+        self.write_session("s1", [self.store("Only once")])
+        self.assertEqual(self.sync()["inserted"], 1)
+        second = self.sync()
+        self.assertEqual(second["inserted"], 0)
+        self.assertEqual(second["already_present"], 1)
+        self.assertEqual(self.raw("SELECT COUNT(*) FROM facts")[0][0], 1)
+
+    def test_downvoted_fact_is_retired_not_resurrected(self):
+        """Without this the sync silently republishes facts the agent retracted."""
+        stale = "The repo is PUBLIC"
+        self.write_session("s1", [
+            self.store(stale, subject="repo privacy"),
+            self.call("vote_memory", {"fact": stale, "direction": "downvote",
+                                      "scope": "user", "reason": "now private"}),
+        ])
+        r = self.sync()
+        self.assertEqual(r["superseded"], 1)
+        self.assertEqual(self.raw("SELECT status FROM facts")[0][0], "superseded")
+
+    def test_upvote_does_not_supersede(self):
+        keep = "Still true"
+        self.write_session("s1", [
+            self.store(keep),
+            self.call("vote_memory", {"fact": keep, "direction": "upvote", "scope": "user"}),
+        ])
+        self.sync()
+        self.assertEqual(self.raw("SELECT status FROM facts")[0][0], "active")
+
+    def test_dry_run_writes_nothing(self):
+        self.write_session("s1", [self.store("Not persisted")])
+        r = self.sync(dry_run=True)
+        self.assertEqual(r["calls_found"], 1)
+        self.assertEqual(self.raw("SELECT COUNT(*) FROM facts")[0][0], 0)
+
+    def test_sets_last_accessed_at(self):
+        """Invariant 1: a NULL here makes the fact invisible to export_context."""
+        self.write_session("s1", [self.store("Must be visible")])
+        self.sync()
+        self.assertEqual(
+            self.raw("SELECT COUNT(*) FROM facts WHERE last_accessed_at IS NULL")[0][0], 0)
+
+    def test_imported_fact_reaches_the_bridge(self):
+        """End-to-end: the whole point is that these show up at session start."""
+        self.write_session("s1", [self.store("Bridge visible fact", subject="skill installation")])
+        self.sync()
+        md.export_context(self.base())
+        with open(self.ctx_path, encoding="utf-8") as fh:
+            self.assertIn("Bridge visible fact", fh.read())
+
+    def test_records_provenance_and_session(self):
+        self.write_session("sess-abc", [self.store("Traceable", citations="from a test")])
+        self.sync()
+        row = self.raw("SELECT source, session_id FROM facts")[0]
+        self.assertIn("store_memory", row[0])
+        self.assertIn("from a test", row[0])
+        self.assertEqual(row[1], "sess-abc")
+
+    def test_ignores_other_tools_and_malformed_lines(self):
+        d = os.path.join(self.sessions, "s1")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "events.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write("{ not json at all\n")
+            fh.write(json.dumps(self.call("some_other_tool", {"fact": "nope"})) + "\n")
+            fh.write(json.dumps({"type": "tool.execution_complete",
+                                 "data": {"toolName": "store_memory",
+                                          "arguments": {"fact": "completion event"}}}) + "\n")
+            fh.write(json.dumps(self.store("the real one")) + "\n")
+        r = self.sync()
+        self.assertEqual(r["inserted"], 1)
+        self.assertEqual(self.raw("SELECT content FROM facts")[0][0], "the real one")
+
+    def test_missing_session_root_is_not_an_error(self):
+        r = md.sync_agent_memory(self.base(session_root=os.path.join(self.test_dir, "nope")))
+        self.assertEqual(r["calls_found"], 0)
+        self.assertEqual(r["inserted"], 0)
+
+    def test_since_hours_skips_old_sessions(self):
+        self.write_session("old", [self.store("Ancient history")])
+        path = os.path.join(self.sessions, "old", "events.jsonl")
+        old = time.time() - (72 * 3600)
+        os.utime(path, (old, old))
+        self.write_session("new", [self.store("Recent")])
+        r = self.sync(since_hours=24)
+        self.assertEqual(r["inserted"], 1)
+        self.assertEqual(self.raw("SELECT content FROM facts")[0][0], "Recent")
+
+    def test_recency_uses_event_time_not_sync_time(self):
+        """Stamping now() makes every imported topic look freshly used, which
+        evicts genuinely active topics from the bridge (export orders by
+        last_accessed_at). Recency must be when the memory was stored."""
+        old_event = {"type": "tool.execution_start",
+                     "timestamp": "2026-01-15T08:30:00Z",
+                     "data": {"toolName": "store_memory",
+                              "arguments": {"fact": "Stored back in January",
+                                            "subject": "old news", "scope": "user"}}}
+        self.write_session("s1", [old_event])
+        self.sync()
+        fact_ts = self.raw("SELECT last_accessed_at FROM facts")[0][0]
+        topic_ts = self.raw("SELECT last_accessed_at FROM topics WHERE slug='old-news'")[0][0]
+        self.assertTrue(fact_ts.startswith("2026-01-15"), f"fact recency was {fact_ts}")
+        self.assertTrue(topic_ts.startswith("2026-01-15"), f"topic recency was {topic_ts}")
+
+    def test_resync_does_not_bump_recency_forward(self):
+        """Replaying a historical event is not a fresh relevance signal."""
+        self.write_session("s1", [{"type": "tool.execution_start",
+                                   "timestamp": "2026-01-15T08:30:00Z",
+                                   "data": {"toolName": "store_memory",
+                                            "arguments": {"fact": "Old", "subject": "x"}}}])
+        self.sync()
+        self.sync()
+        self.assertTrue(self.raw("SELECT last_accessed_at FROM facts")[0][0].startswith("2026-01-15"))
+
+    def test_dispatch_registered(self):
+        """Registration is what makes the op usable inside batch."""
+        self.assertIn("sync_agent_memory", md.DISPATCH)
 
 
 if __name__ == "__main__":

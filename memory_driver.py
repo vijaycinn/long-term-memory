@@ -15,6 +15,7 @@ import sys
 import sqlite3
 import os
 import io
+import re
 import datetime
 
 # Ensure UTF-8 stdin regardless of Windows console codepage.
@@ -852,6 +853,239 @@ def get_stats(p=None):
 
 # ── dispatch ──────────────────────────────────────────────────────────
 
+DEFAULT_SESSION_ROOT = os.path.join(
+    os.environ.get("USERPROFILE", os.path.expanduser("~")), ".copilot", "session-state"
+)
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(text, fallback="agent-memory"):
+    slug = _SLUG_RE.sub("-", (text or "").strip().lower()).strip("-")
+    return slug[:60] or fallback
+
+
+def _iter_tool_calls(session_root, tool_name, since_hours=None, max_sessions=None):
+    """Yield (session_id, arguments) for every call to `tool_name` in the event logs.
+
+    Event logs are large (tens of MB) and mostly irrelevant, so each line is
+    filtered with a cheap substring test before paying for json.loads. Without
+    that guard a full scan costs minutes instead of seconds.
+    """
+    if not os.path.isdir(session_root):
+        return
+    needle = f'"{tool_name}"'
+    cutoff = None
+    if since_hours is not None:
+        cutoff = datetime.datetime.now().timestamp() - (float(since_hours) * 3600.0)
+
+    dirs = []
+    for name in os.listdir(session_root):
+        path = os.path.join(session_root, name, "events.jsonl")
+        if not os.path.isfile(path):
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        if cutoff is not None and mtime < cutoff:
+            continue
+        dirs.append((mtime, name, path))
+    dirs.sort(reverse=True)
+    if max_sessions:
+        dirs = dirs[: int(max_sessions)]
+
+    for _, session_id, path in dirs:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    # Cheap reject first: only ~0.01% of lines are relevant.
+                    if needle not in line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                    except (ValueError, TypeError):
+                        continue
+                    if event.get("type") != "tool.execution_start":
+                        continue
+                    data = event.get("data") or {}
+                    if data.get("toolName") != tool_name:
+                        continue
+                    args = data.get("arguments") or {}
+                    if isinstance(args, dict) and (args.get("fact") or "").strip():
+                        yield session_id, args, event.get("timestamp")
+        except OSError:
+            continue
+
+
+def _event_time(raw, fallback):
+    """Normalise an event timestamp to the store's 'YYYY-MM-DD HH:MM:SS' shape.
+
+    Imported facts must carry the time the memory was *stored*, not the time the
+    sync ran. Stamping them all with now() makes every imported topic look
+    freshly used, which pushes genuinely active topics out of the bridge — the
+    export orders by last_accessed_at.
+    """
+    if not raw:
+        return fallback
+    text = str(raw).strip().replace("Z", "").replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S",
+                "%m/%d/%Y %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.datetime.strptime(text[:26], fmt).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    return fallback
+
+
+def sync_agent_memory(p):
+    """Replay harness `store_memory` calls from the session event log into this store.
+
+    The agent-facing `store_memory` tool writes to the harness's own memory
+    service, which `export_context` cannot see. Facts saved that way therefore
+    never reach the bridge and are invisible at the next session start, while
+    facts written through `add_fact` are invisible to the harness — two stores
+    silently diverging. Every `store_memory` call is, however, recorded locally
+    in `session-state/<id>/events.jsonl`, so this op replays them into SQLite.
+
+    Idempotent. Dedup is the same NULL-safe `(topic_id, content)` pre-check
+    `add_fact` uses, so re-running only refreshes recency on known facts.
+    """
+    session_root = p.get("session_root") or DEFAULT_SESSION_ROOT
+    importance = int(p.get("importance", 4))
+    fact_type = p.get("fact_type", "insight")
+    forced_slug = p.get("topic_slug")
+    dry_run = bool(p.get("dry_run"))
+    since_hours = p.get("since_hours")
+    max_sessions = p.get("max_sessions")
+    now = _now()
+
+    seen = set()
+    pending = []
+    for session_id, args, event_ts in _iter_tool_calls(
+        session_root, "store_memory", since_hours, max_sessions
+    ):
+        content = (args.get("fact") or "").strip()
+        subject = (args.get("subject") or "").strip()
+        slug = forced_slug or _slugify(subject)
+        key = (slug, content)
+        if key in seen:
+            continue
+        seen.add(key)
+        scope = (args.get("scope") or "user").strip()
+        citations = " ".join((args.get("citations") or "").split())
+        source = f"store_memory/{scope}"
+        if citations:
+            source = f"{source} — {citations[:200]}"
+        pending.append(
+            {
+                "slug": slug,
+                "title": subject.title() if subject else "Agent Memory",
+                "content": content,
+                "source": source,
+                "session_id": session_id,
+                "stored_at": _event_time(event_ts, now),
+            }
+        )
+
+    result = {
+        "calls_found": len(pending),
+        "inserted": 0,
+        "already_present": 0,
+        "topics_created": 0,
+        "superseded": 0,
+        "dry_run": dry_run,
+    }
+
+    # A fact the agent later downvoted is stale in the harness store, and replaying
+    # the original store_memory call would silently resurrect it. Downvotes carry
+    # the exact fact text, so retire the matching row instead of deleting it
+    # (invariant 8: retire, don't delete).
+    retired = set()
+    for _, args, _ts in _iter_tool_calls(session_root, "vote_memory", since_hours, max_sessions):
+        if (args.get("direction") or "").strip().lower() == "downvote":
+            text = (args.get("fact") or "").strip()
+            if text:
+                retired.add(text)
+
+    if dry_run or not pending:
+        result["would_insert"] = [x["content"][:80] for x in pending[:20]] if dry_run else []
+        result["would_supersede"] = len([x for x in pending if x["content"] in retired])
+        return result
+
+    with get_conn(_db_path(p)) as conn:
+        # A topic's recency is the newest memory it received, not the sync time.
+        newest = {}
+        for item in pending:
+            slug = item["slug"]
+            if item["stored_at"] > newest.get(slug, ""):
+                newest[slug] = item["stored_at"]
+
+        topic_ids = {}
+        for item in pending:
+            slug = item["slug"]
+            if slug in topic_ids:
+                continue
+            row = conn.execute("SELECT id FROM topics WHERE slug=?", (slug,)).fetchone()
+            if row:
+                topic_ids[slug] = row[0]
+                # Repair rows from an earlier sync that stamped now() and so
+                # crowded real topics out of the bridge.
+                conn.execute(
+                    "UPDATE topics SET last_accessed_at=? WHERE id=? AND last_accessed_at>?",
+                    (newest[slug], row[0], newest[slug]),
+                )
+                continue
+            cur = conn.execute(
+                """
+                INSERT INTO topics(slug, title, category, description, status, last_accessed_at)
+                VALUES(?,?,?,?,?,?)
+                """,
+                (slug, item["title"], "research",
+                 "Imported from harness store_memory calls.", "active", newest[slug]),
+            )
+            topic_ids[slug] = cur.lastrowid
+            result["topics_created"] += 1
+
+        for item in pending:
+            topic_id = topic_ids[item["slug"]]
+            status = "superseded" if item["content"] in retired else "active"
+            stored_at = item["stored_at"]
+            existing = conn.execute(
+                "SELECT id, status FROM facts WHERE topic_id IS ? AND content=?",
+                (topic_id, item["content"]),
+            ).fetchone()
+            if existing:
+                # Replaying a historical event is NOT a fresh relevance signal,
+                # so never bump recency forward here — only correct it backwards
+                # if a previous sync wrote the wall-clock time.
+                conn.execute(
+                    "UPDATE facts SET last_accessed_at=? WHERE id=? AND last_accessed_at>?",
+                    (stored_at, existing[0], stored_at),
+                )
+                if status == "superseded" and existing[1] != "superseded":
+                    conn.execute(
+                        "UPDATE facts SET status='superseded' WHERE id=?", (existing[0],)
+                    )
+                    result["superseded"] += 1
+                result["already_present"] += 1
+                continue
+            conn.execute(
+                """
+                INSERT INTO facts
+                  (topic_id, content, fact_type, confidence, importance, source, session_id,
+                   status, last_accessed_at, created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                """,
+                (topic_id, item["content"], fact_type, 4, importance,
+                 item["source"], item["session_id"], status, stored_at, stored_at),
+            )
+            result["inserted"] += 1
+            if status == "superseded":
+                result["superseded"] += 1
+    return result
+
+
 DISPATCH = {
     "add_topic":      add_topic,
     "get_topic":      get_topic,
@@ -868,6 +1102,7 @@ DISPATCH = {
     "optimize_db":    optimize_db,
     "batch":          batch,
     "get_stats":      get_stats,
+    "sync_agent_memory": sync_agent_memory,
 }
 
 if __name__ == "__main__":
