@@ -218,7 +218,19 @@ def _now():
 
 # FTS5 reserved characters. A bare token containing any of these is parsed as
 # syntax rather than text, e.g. "remember-this" becomes column:this.
+# Kept for reference/compatibility, but sanitising now works off an ALLOWLIST:
+# a denylist has to enumerate every punctuation mark FTS5 dislikes and silently
+# fails on the first one it missed — '.' was missing, so a search for
+# "ltm.instructions.md" raised 'fts5: syntax error near "."' instead of retrying.
 _FTS_SPECIAL = set('-:^*()"')
+
+# A bare token is safe only if it is plain word characters, optionally with a
+# trailing '*' for prefix search. Everything else gets quoted.
+_FTS_BARE_SAFE = re.compile(r'^\w+\*?$', re.UNICODE)
+
+# Split on whitespace but keep a "quoted phrase" together, so an already-valid
+# phrase is not chopped into '"exact' + 'phrase"' and re-quoted into nonsense.
+_FTS_TOKEN_RE = re.compile(r'"[^"]*"|\S+')
 
 
 def _fts_quote(token):
@@ -227,20 +239,26 @@ def _fts_quote(token):
 
 
 def _fts_sanitize(query):
-    """Quote every whitespace-separated token that contains an FTS5 operator.
+    """Quote every token that FTS5 would try to parse as syntax.
+
+    Only ever runs after the caller's query has already been rejected, so it can
+    afford to be aggressive: anything that is not a plain word, a boolean, or an
+    intact quoted phrase is turned into a literal.
 
     Bare boolean keywords (AND / OR / NOT / NEAR) are preserved so a sanitized
     retry does not silently change the caller's intent.
     """
     booleans = {"AND", "OR", "NOT", "NEAR"}
     out = []
-    for token in query.split():
-        if token in booleans:
+    for token in _FTS_TOKEN_RE.findall(query):
+        if len(token) > 1 and token.startswith('"') and token.endswith('"'):
+            out.append(token)               # already a valid phrase — leave alone
+        elif token in booleans:
             out.append(token)
-        elif any(ch in _FTS_SPECIAL for ch in token):
-            out.append(_fts_quote(token))
+        elif _FTS_BARE_SAFE.match(token):
+            out.append(token)
         else:
-            out.append(token)
+            out.append(_fts_quote(token))
     return " ".join(out)
 
 

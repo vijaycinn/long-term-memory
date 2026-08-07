@@ -104,6 +104,66 @@ class TestFtsOperatorTerms(DriverTestCase):
     def test_sanitizer_escapes_embedded_quotes(self):
         self.assertEqual(md._fts_quote('say "hi"'), '"say ""hi"""')
 
+    # ── Punctuation beyond '-' and ':' ────────────────────────────────
+    #
+    # The original sanitiser used a DENYLIST, set('-:^*()"'). A denylist has to
+    # enumerate every character FTS5 dislikes and fails silently on the first
+    # one it missed. '.' was missing, so searching for a filename crashed with
+    # 'fts5: syntax error near "."' instead of falling back — and the stored
+    # memory is full of filenames, paths, emails and percentages.
+
+    def test_search_survives_every_punctuation_class(self):
+        """Contract, not one example — a denylist would keep missing characters."""
+        cases = {
+            "dot":       "ltm.instructions.md",
+            "path":      r"C:\workspace\agency",
+            "email":     "vcinnakonda@microsoft.com",
+            "slash":     "AI/ML",
+            "percent":   "50%",
+            "comma":     "a,b",
+            "plus":      "C++",
+            "hash":      "#hashtag",
+            "amp":       "R&D",
+            "semicolon": "a;b",
+            "bang":      "wow!",
+            "question":  "why?",
+            "apostroph": "what's",
+            "equals":    "a=b",
+            "pipe":      "a|b",
+            "brace":     "{x}",
+            "bracket":   "[y]",
+            "tilde":     "~home",
+            "dollar":    "$env",
+            "at_start":  "@mention",
+        }
+        for label, query in cases.items():
+            with self.subTest(punctuation=label, query=query):
+                try:
+                    md.search_memory(self.base(query=query))
+                except sqlite3.OperationalError as exc:
+                    self.fail(f"{label} ({query!r}) crashed search: {exc}")
+
+    def test_dotted_term_finds_the_fact(self):
+        t = self.topic("files")
+        self.fact("Never centralise ltm.instructions.md into a git repo", t)
+        rows = md.search_memory(self.base(query="ltm.instructions.md"))
+        self.assertGreaterEqual(len(rows), 1, "dotted filename should be findable")
+        self.assertTrue(any("ltm.instructions.md" in r["text"] for r in rows))
+
+    def test_sanitizer_leaves_a_valid_quoted_phrase_intact(self):
+        # Splitting on whitespace chopped '"exact phrase"' into '"exact' and
+        # 'phrase"' and re-quoted both into nonsense.
+        self.assertEqual(md._fts_sanitize('"exact phrase" a.b'), '"exact phrase" "a.b"')
+
+    def test_sanitizer_preserves_prefix_search(self):
+        self.assertEqual(md._fts_sanitize("junct* a.b"), 'junct* "a.b"')
+
+    def test_hyphenated_topic_slug_is_searchable(self):
+        # Slugs are the handle used everywhere; they are hyphenated by design.
+        self.topic("fy27-comp-plan", title="FY27 Comp Plan")
+        rows = md.search_memory(self.base(query="fy27-comp-plan"))
+        self.assertGreaterEqual(len(rows), 1, "hyphenated slug not retrievable")
+
 
 class TestSearchResultShape(DriverTestCase):
     """Callers reached for .content and got None because only .text existed."""

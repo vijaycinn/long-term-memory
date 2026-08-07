@@ -130,6 +130,7 @@ now covered by a test. **If you change the relevant code, run the tests.**
 | 22 | The first cut of #21 **evicted every genuinely active topic from the bridge** | Imported rows were stamped `now()`, so all 68 imported topics looked freshly used and won the `ORDER BY last_accessed_at` | Use the event's own timestamp; a re-sync corrects recency *backwards* but never bumps it forward, since replaying history is not a fresh relevance signal | `test_recency_uses_event_time_not_sync_time`, `test_resync_does_not_bump_recency_forward` |
 | 23 | A re-sync would have **resurrected facts the agent had retracted** | `vote_memory` downvotes live only in the harness store; a naive replay of the original `store_memory` call reinstates the stale claim | Downvotes are read from the same event log and the matching fact is set `status='superseded'` (invariant 8: retire, don't delete) | `test_downvoted_fact_is_retired_not_resurrected` |
 | 24 | **Auto-extracted facts were stored but never rendered.** Found while auditing #21 — same invisibility, different cause | Both `extract_facts` and `extract_pending_work` inserted without `last_accessed_at`; NULLs sort last so `export_context` never reached them. The row existed, so every count and integrity check looked healthy | Both inserts set `datetime('now')`; `Invoke-MemoryMigration` backfills existing rows | `test_every_extracted_fact_is_visible_to_the_bridge` — asserts across *all* rows, so a third insert path cannot reintroduce it |
+| 25 | **Searching for a filename, path, email or percentage crashed** — e.g. `ltm.instructions.md` raised `fts5: syntax error near "."`. Only `-` and `:` had ever worked, and the stored memory is full of paths and filenames | `_fts_sanitize` used a **denylist**, `set('-:^*()"')`. A denylist must enumerate every character FTS5 dislikes and fails on the first one it missed; the sanitized query came back unchanged, so the driver re-raised instead of retrying | Inverted to an **allowlist**: a bare token is left alone only if it is `^\w+\*?$`, otherwise it is quoted. Safe to be aggressive because sanitising only runs after the query has already been rejected. Tokenising now also keeps `"quoted phrases"` intact instead of splitting them on whitespace | `test_search_survives_every_punctuation_class` (20 classes), `test_dotted_term_finds_the_fact`, `test_sanitizer_leaves_a_valid_quoted_phrase_intact` |
 
 ---
 
@@ -153,6 +154,10 @@ now covered by a test. **If you change the relevant code, run the tests.**
 11. **Imported memory carries the time it was stored, not the time it was
     imported.** Stamping `now()` on a replay makes stale topics look hot and
     pushes live work out of the bridge.
+12. **Sanitise FTS queries with an allowlist, never a denylist.** A denylist has
+    to enumerate every character FTS5 treats as syntax and fails on the first
+    one it missed — `.` was missing for months, so searching for any filename
+    crashed. Only a plain `^\w+\*?$` token is safe to leave bare.
 
 ---
 
