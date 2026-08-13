@@ -306,6 +306,10 @@ def main():
              if (f.get("fact_type") or "") == "todo" and not is_noise(f.get("content"))]
     actions = [f for f in mem["facts"]
                if (f.get("fact_type") or "") == "action" and not is_noise(f.get("content"))]
+    # Facts recorded as questions are open work by definition — an unanswered
+    # question blocking a deliverable belongs here, not only on its topic page.
+    questions = [f for f in mem["facts"]
+                 if (f.get("fact_type") or "") == "question" and not is_noise(f.get("content"))]
     open_q, next_steps = [], []
     for s in mem["snapshots"]:
         if s.get("open_questions"):
@@ -324,6 +328,14 @@ def main():
         for f_ in sorted(todos, key=lambda x: -(x.get("importance") or 0)):
             t = topic_notes.get(f_.get("topic_id"))
             tp.append(f"- [ ] {f_['content']}" + (f" · {link(t)}" if t else ""))
+    if questions:
+        tp.append(f"\n## Unanswered questions  <small>({len(questions)})</small>\n")
+        tp.append("> [!question] Recorded as questions in memory and never resolved. "
+                  "Each one blocks something downstream.\n")
+        for f_ in sorted(questions, key=lambda x: -(x.get("importance") or 0)):
+            t = topic_notes.get(f_.get("topic_id"))
+            star = "⭐ " if (f_.get("importance") or 0) >= 5 else ""
+            tp.append(f"- [ ] {star}{f_['content']}" + (f" · {link(t)}" if t else ""))
     if next_steps:
         tp.append(f"\n## Next steps from snapshots  <small>({len(next_steps)})</small>\n")
         for title, txt, t in next_steps:
@@ -344,7 +356,8 @@ def main():
             tp.append(f"\n- **{head}**" + (f" · {link(t)}" if t else ""))
     tp.append(f"\n---\n\n_Index generated {STAMP}. Return to {link(HOME)}._\n")
     write_note("tasks", "Open Loops", "\n".join(tp), origin="index",
-               summary=f"{len(todos)} todo(s), {len(next_steps)} next-step block(s), "
+               summary=f"{len(todos)} todo(s), {len(questions)} unanswered question(s), "
+                       f"{len(next_steps)} next-step block(s), "
                        f"{len(open_q)} open question(s) from prior sessions.")
 
     # ------------------------------------------------------------------ Meta
