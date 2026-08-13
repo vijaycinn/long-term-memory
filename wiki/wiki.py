@@ -10,6 +10,8 @@ Pages written here carry no `generated: true`, so the builder never touches them
 
   python wiki.py file-answer "Title" --body-file ans.md --tags saif,pricing
   python wiki.py file-answer "Title" --body "..."   --question "what was asked"
+  python wiki.py ingest article.md --title "..." --url https://...
+  python wiki.py index             # refresh index.md only (~1s, no rebuild)
   python wiki.py log ingest "Article title" --detail "what changed"
   python wiki.py recent            # last log entries
   python wiki.py search "term"     # grep the vault, ranked
@@ -232,6 +234,165 @@ def cmd_search(a) -> int:
     return 0
 
 
+def cmd_index(a) -> int:
+    """Refresh index.md without a rebuild.
+
+    Hand-authored pages need no build — the builder never touches them — so
+    after writing one the only stale artefact is the catalogue. Refreshing just
+    that costs about a second, against seven for an incremental rebuild.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import navfiles
+    n = navfiles.write_index()
+    print(f"index.md refreshed - {n} pages")
+    return 0
+
+
+def _affected_pages(text: str, limit: int = 25) -> list[tuple[str, int, str]]:
+    """Existing pages this source most likely bears on.
+
+    This is the bookkeeping half of an ingest — the mechanical cross-referencing
+    Karpathy's pattern says the LLM should not be doing by hand. Judgement about
+    which of these actually need editing stays with the agent.
+
+    Two signals, because exact name matching alone has poor recall here: a page
+    called "Topic - Content Understanding Pricing" is obviously relevant to an
+    article about Content Understanding costs, but the exact phrase never
+    appears. So distinctive title words are matched as well, weighted lower than
+    a full-name hit so precision still wins the ranking.
+    """
+    STOP = {"topic", "skill", "library", "artifacts", "learnings", "sessions",
+            "work", "log", "moc", "index", "home", "the", "and", "for", "with",
+            "from", "into", "notes", "note", "guide", "vs", "analysis", "review"}
+
+    def tokens(s: str) -> set[str]:
+        return {w for w in re.findall(r"[a-z][a-z0-9-]{3,}", s.lower())
+                if w not in STOP}
+
+    src_tokens = tokens(text)
+    low = text.lower()
+    scores = Counter()
+    meta = {}
+
+    for p in VAULT.rglob("*.md"):
+        if ".obsidian" in p.parts or p.name in ("index.md", "log.md"):
+            continue
+        rel = p.relative_to(VAULT).as_posix()
+        meta[p.stem] = rel
+        bare = re.sub(r"^(Topic|Skill|Library|Artifacts) - ", "", p.stem)
+
+        exact = 0
+        for cand in {p.stem, bare}:
+            c = cand.strip().lower()
+            if len(c) >= 4:
+                exact += len(re.findall(
+                    r"(?<![\w-])" + re.escape(c) + r"(?![\w-])", low))
+        if exact:
+            scores[p.stem] += exact * 10        # a named mention is strong evidence
+
+        title_tokens = tokens(bare)
+        if title_tokens:
+            shared = title_tokens & src_tokens
+            # Require most of the title to appear, so "Azure Monitor" does not
+            # match every page containing the word "azure".
+            if len(shared) >= max(2, len(title_tokens) - 1):
+                scores[p.stem] += len(shared)
+
+    return [(name, n, meta.get(name, "")) for name, n in scores.most_common(limit)]
+
+
+def cmd_ingest(a) -> int:
+    """Register a source and report what it touches.
+
+    Deliberately does **not** write the analysis: an ingest is the LLM reading a
+    source and deciding what changed in its understanding. What a script can do
+    is the filing — create the source page, work out which existing pages the
+    source mentions, append to the log, refresh the catalogue — and then hand
+    back a worklist.
+    """
+    src = Path(a.source)
+    if not src.is_file():
+        print(f"error: source not found: {src}", file=sys.stderr)
+        return 2
+    text = _read(src)
+    if not text.strip():
+        print(f"error: source is empty: {src}", file=sys.stderr)
+        return 2
+
+    title = a.title or src.stem.replace("_", " ").replace("-", " ").strip()
+    stem = _slug(title)
+    dest_dir = VAULT / "11-Sources"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    page = dest_dir / f"{stem}.md"
+    n = 2
+    while page.exists() and not a.overwrite:
+        page = dest_dir / f"{stem} ({n}).md"
+        n += 1
+
+    affected = _affected_pages(text)
+    words = len(text.split())
+
+    tags = ["source"] + [t.strip() for t in (a.tags or "").split(",") if t.strip()]
+    fm = ["---", f'title: "{title}"', 'type: "source"',
+          f'ingested: {NOW:%Y-%m-%d}',
+          "tags: [" + ", ".join(f'"{t}"' for t in dict.fromkeys(tags)) + "]",
+          f"source_path: '{src.as_posix()}'",
+          f"word_count: {words}"]
+    if a.url:
+        fm.append(f"url: '{a.url}'")
+    fm.append(f"summary: 'Ingested source - {words} words. Summary pending: replace "
+              f"this line and the body with what it changed.'")
+    fm.append("---")
+
+    body = [
+        "\n".join(fm), "", "[[Home]] › [[index]]", "", f"# {title}", "",
+        "> [!warning] Not yet summarised",
+        "> This page was created by `wiki.py ingest`. Replace the placeholder",
+        "> below with what the source actually changed — not a restatement of it.",
+        "",
+        "## What this changed", "",
+        "_Replace: what is now known that was not before, what it confirms, and "
+        "what it contradicts._", "",
+        "## Contradictions", "",
+        "_Replace or delete. Record both claims and their dates; do not silently "
+        "overwrite an existing page._", "",
+        "## Pages this source bears on", "",
+    ]
+    if affected:
+        body.append("| Page | Mentions | Location |")
+        body.append("|---|--:|---|")
+        for name, cnt, rel in affected:
+            body.append(f"| [[{name}]] | {cnt} | `{rel}` |")
+    else:
+        body.append("_No existing page matched. This may be genuinely new ground._")
+    body += ["", "---", "",
+             f"_Source: `{src}`_" + (f" · [link]({a.url})" if a.url else ""),
+             f"_Ingested {NOW:%Y-%m-%d %H:%M UTC}. Hand-authored — the builder "
+             f"never rewrites this page._", ""]
+
+    page.write_text("\n".join(body), encoding="utf-8")
+    _append_log("ingest", title,
+                f"- source: `{src}` ({words} words)\n"
+                f"- page: `{page.relative_to(VAULT).as_posix()}`\n"
+                f"- touches {len(affected)} existing page(s)")
+
+    if not a.no_index:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import navfiles
+        navfiles.write_index()
+
+    print(f"page    -> {page}")
+    print(f"source  -> {src}  ({words} words)")
+    print(f"\n{len(affected)} page(s) this source bears on"
+          + (" - review and update the ones that genuinely change:" if affected else ":"))
+    for name, cnt, rel in affected[:15]:
+        print(f"  {cnt:>4}x  {name}")
+        print(f"         {rel}")
+    print("\nNext: read the source, then edit the page above — say what it CHANGED.")
+    print("      Atomic facts belong in memory (Remember-This), not only here.")
+    return 0
+
+
 def main() -> int:
     # Windows consoles default to cp1252, which cannot encode the arrows and
     # dashes used in this output. Reconfigure rather than degrade the text.
@@ -272,6 +433,19 @@ def main() -> int:
     se.add_argument("query")
     se.add_argument("--limit", type=int, default=12)
     se.set_defaults(fn=cmd_search)
+
+    ix = sub.add_parser("index", help="refresh index.md without a rebuild (~1s)")
+    ix.set_defaults(fn=cmd_index)
+
+    ig = sub.add_parser("ingest", help="register a source and report what it touches")
+    ig.add_argument("source", help="path to the source file")
+    ig.add_argument("--title", default="")
+    ig.add_argument("--url", default="", help="original URL, if any")
+    ig.add_argument("--tags", default="", help="comma-separated")
+    ig.add_argument("--overwrite", action="store_true")
+    ig.add_argument("--no-index", action="store_true",
+                    help="skip the index refresh (batch ingests: refresh once at the end)")
+    ig.set_defaults(fn=cmd_ingest)
 
     a = ap.parse_args()
     if not VAULT.is_dir():

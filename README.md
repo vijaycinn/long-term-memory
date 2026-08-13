@@ -121,9 +121,56 @@ Same operations from the shell, no MCP required:
 ```powershell
 cd wiki
 python wiki.py search "term"                        # ranked lookup
+python wiki.py ingest article.md --title "..."      # register a source (~1.5s)
 python wiki.py file-answer "Title" --body-file a.md # file an answer back
+python wiki.py index                                # refresh index.md only (~1s)
 python wiki.py recent                               # what changed lately
 ```
+
+### Cost of each operation
+
+Measured on a 479-page vault, so the tooling can be used freely in a
+conversation without stalling it:
+
+| Operation | Cost | When |
+|---|--:|---|
+| `memory_search` (FTS5) | **~15 ms** | every grounding question |
+| `vault_read` | ~5 ms | opening a page |
+| `vault_search`, first call | ~850 ms | reads every page once |
+| `vault_search`, thereafter | **~105 ms** | in-process cache, revalidated by mtime |
+| MCP process start | ~300 ms | once per session, not per call |
+| `sync.py --mark` | ~310 ms | what `Add-Fact` pays |
+| `wiki.py ingest` | ~1.5 s | includes the index refresh |
+| `wiki.py index` | ~1 s | after writing a page by hand |
+| `Sync-Vault` (incremental) | ~7 s | after writing to *memory* |
+| `Sync-Vault -Full` | ~10 s | after adding workspace documents |
+
+The distinction that matters: **writing a page needs no rebuild.** Hand-authored
+pages carry no `generated: true`, so the builder never touches them and only the
+catalogue is stale — one second, not seven. A rebuild is only required when
+*memory* changed.
+
+### Ingest — the conversational half
+
+The build pipeline compiles sources it can see. `ingest` covers the other case:
+a source arriving mid-conversation, where the value is in what it *changes*
+rather than what it says.
+
+```powershell
+python wiki.py ingest article.md --title "..." --url https://...
+```
+
+It does the bookkeeping — creates a page under `11-Sources/`, cross-references
+which existing pages the source bears on, logs it, refreshes the index — and
+returns a worklist. Reading the source, deciding what actually changed, and
+updating those pages stays with the agent, which is the only part a script
+cannot do.
+
+Cross-referencing uses two signals: a full page-name mention (weighted heavily)
+plus distinctive-title-word overlap. Name matching alone had poor recall — an
+article about Content Understanding costs obviously bears on
+`Topic - Content Understanding Pricing`, but that exact phrase never appears in
+it.
 
 ### Two navigation files
 

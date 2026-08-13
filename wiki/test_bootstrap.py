@@ -200,6 +200,33 @@ def main():
         idx = (vault / "index.md").read_text(encoding="utf-8")
         check("filed answer appears in index.md", "Why widget prices fell" in idx)
 
+        # ingest: registers a source and reports the pages it bears on
+        art = tmp / "article.md"
+        art.write_text(
+            "# Widget market note\n\nAcme Corp has changed how widget pricing "
+            "works. The discount table now applies before the analyzer switch, "
+            "which affects widget pricing across the board.\n", encoding="utf-8")
+        p = run(["wiki.py", "ingest", str(art), "--title", "Widget market note",
+                 "--url", "https://example.com/widgets", "--tags", "pricing"], e)
+        src_page = vault / "11-Sources" / "Widget market note.md"
+        check("ingest created a source page", src_page.is_file(), p.stdout + p.stderr)
+        body = src_page.read_text(encoding="utf-8") if src_page.is_file() else ""
+        check("ingest flags the page as unsummarised", "Not yet summarised" in body)
+        check("ingest cross-references existing pages",
+              "Acme Corp" in body, body[:400])
+        check("ingest reports a worklist", "bears on" in p.stdout, p.stdout[:300])
+        log_txt = (vault / "log.md").read_text(encoding="utf-8")
+        check("ingest appended to the log", "] ingest |" in log_txt)
+        idx = (vault / "index.md").read_text(encoding="utf-8")
+        check("ingest refreshed index.md", "Widget market note" in idx)
+        run(["build.py", "--memory-only"], e)
+        check("ingested source survives a rebuild", src_page.is_file())
+
+        # index-only refresh: the fast path that avoids a rebuild
+        p = run(["wiki.py", "index"], e)
+        check("index refresh works standalone", "index.md refreshed" in p.stdout,
+              p.stdout + p.stderr)
+
         # ------------------------------------------------------------ full
         print("\n=== mode: full (database + source workspace) ===")
         ws = tmp / "workspace"

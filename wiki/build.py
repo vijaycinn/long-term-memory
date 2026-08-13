@@ -510,19 +510,21 @@ def main():
         if n:
             hp.append(f"- {link(n)} — _{t.get('category')}_")
 
-    # Hand-authored notes are never touched by the builder — surface them so
-    # they are reachable from the graph rather than sitting orphaned.
+    # Hand-authored notes are never touched by the builder. They are catalogued
+    # in index.md (marked as such) rather than enumerated here: index.md can be
+    # refreshed on its own in about a second, whereas Home can only be rebuilt
+    # by a full run. Listing them in both places meant the fast path left Home
+    # stale, pointing at pages that had since been renamed or removed.
     generated_stems = {p.stem for p in WRITTEN}
-    handwritten = sorted(
+    handwritten = [
         p.stem for p in VAULT.rglob("*.md")
         if ".obsidian" not in p.parts and p.stem not in generated_stems
-        and not re.search(r"^generated:\s*true\s*$",
-                          read_text(p)[:400], re.M))
+        and not re.search(r"^generated:\s*true\s*$", read_text(p)[:400], re.M)]
     if handwritten:
         hp.append(f"\n## Hand-authored notes  <small>({len(handwritten)})</small>\n")
-        hp.append("> [!note] These are yours. The builder never rewrites them.\n")
-        for h in handwritten:
-            hp.append(f"- {link(h)}")
+        hp.append(f"> [!note] These are yours — the builder never rewrites them. "
+                  f"They are listed with everything else in {link('index')}, "
+                  f"tagged _(hand-authored)_.\n")
 
     hp.append(f"\n---\n\n_Vault generated {STAMP} · see {link('Build Log')}._\n")
     if not DRY:

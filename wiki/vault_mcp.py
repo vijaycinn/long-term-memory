@@ -44,6 +44,28 @@ def read(p: Path) -> str:
     return ""
 
 
+# The MCP server is a long-lived process, so page text is cached across calls
+# and revalidated by mtime. A cold vault_search reads ~480 files; without this
+# every repeat search pays that again, which is the difference between a tool an
+# agent calls freely and one it avoids.
+_CACHE: dict[Path, tuple[float, str, str]] = {}
+
+
+def read_cached(p: Path) -> tuple[str, str]:
+    """Returns (text, summary), re-reading only when the file has changed."""
+    try:
+        mtime = p.stat().st_mtime
+    except OSError:
+        return "", ""
+    hit = _CACHE.get(p)
+    if hit and hit[0] == mtime:
+        return hit[1], hit[2]
+    text = read(p)
+    entry = (mtime, text, summary_of(text))
+    _CACHE[p] = entry
+    return entry[1], entry[2]
+
+
 def summary_of(text: str) -> str:
     m = SUMMARY_RE.search(text[:1500])
     if not m:
@@ -67,7 +89,7 @@ def t_search(args):
     terms = [t.lower() for t in q.split() if t]
     hits = []
     for p in pages():
-        text = read(p)
+        text, summary = read_cached(p)
         low = text.lower()
         if not all(t in low for t in terms):
             continue
@@ -75,7 +97,7 @@ def t_search(args):
         stem = p.stem.lower()
         if all(t in stem for t in terms):
             score += 25          # a title match beats incidental mentions
-        hits.append((score, p, summary_of(text)))
+        hits.append((score, p, summary))
     if not hits:
         return f"no matches for {q!r}"
     hits.sort(key=lambda x: -x[0])

@@ -107,13 +107,27 @@ argument, comparison or analysis that only makes sense as a whole.
 
 ### Ingest — a new source arrives
 
+```powershell
+python wiki.py ingest article.md --title "..." --url https://... --tags a,b
+```
+
+The script does the filing, not the thinking: it creates a page in
+`11-Sources/`, works out which existing pages the source bears on, appends to
+the log and refreshes the catalogue — then hands back a worklist. Takes about a
+second.
+
+You then do the part a script cannot:
+
 1. Read the source in full.
-2. Say what changed in your understanding — do not just summarise.
-3. Decide the shape: atomic facts → memory; an argument → a `10-Synthesis/` page.
-4. **Attach it**: name the people, topics and prior pages it touches, as links.
-5. **Flag contradictions** with existing pages. Do not silently overwrite.
-6. `Sync-Vault` so generated pages pick it up.
-7. `python wiki.py log ingest "<title>" --detail "..."`
+2. Edit the created page to say **what changed in your understanding** — not a
+   restatement of the source.
+3. Work down the reported worklist and update the pages that genuinely change.
+4. **Flag contradictions** rather than silently overwriting.
+5. Atomic facts go to memory (`Remember-This`), not only to the page.
+6. `python wiki.py index` afterwards — about a second, and no rebuild needed,
+   because hand-authored pages are never touched by the builder.
+
+Only run `Sync-Vault` if you wrote to *memory*; pages alone do not need it.
 
 ### Query — answering from the wiki
 
