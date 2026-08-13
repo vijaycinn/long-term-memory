@@ -30,7 +30,175 @@ Think of `memory.db` as the knowledge store. At every session **end**, the `sess
 - Supports full-text search across memory
 - Lets agents save durable knowledge on cue with `Remember-This`
 - **Absorbs facts the agent saved with the harness `store_memory` tool**, which land in a separate store the bridge cannot read (see [Two stores, one memory](#two-stores-one-memory))
+- **Compiles everything into a browsable, cross-referenced wiki** you can query as an agent tool or read in Obsidian (see [The knowledge wiki](#the-knowledge-wiki))
 - Can be copied or restored on a new machine
+
+---
+
+## The knowledge wiki
+
+Memory answers *"what do I know about X"* one fact at a time. That is enough for
+the ~40-fact context block, but it does not accumulate: nothing links a fact
+about an account to the research that produced it, or to the session where the
+decision was made.
+
+The `wiki/` layer compiles memory — plus the session store, plus an optional
+source workspace — into a **persistent, cross-referenced Obsidian vault**. It
+follows [Karpathy's LLM-wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f):
+knowledge is compiled once and kept current, rather than re-derived on every
+question.
+
+```
+Raw sources ─────► the wiki ─────► the answer
+memory.db          markdown        grounded, cited,
+session store      cross-linked    and filed back
+your workspace     AGENTS.md
+  (immutable)      (LLM-owned)
+```
+
+**You do not need Obsidian.** The vault is plain markdown, and the primary query
+path is `memory_search` — FTS5 straight against `memory.db`, which works before
+any vault exists. Obsidian adds the graph, backlinks and Bases views on top.
+
+### Bootstrap
+
+```powershell
+.\install-memory.ps1        # the memory store (do this first)
+.\install-wiki.ps1          # the wiki layer
+```
+
+`install-wiki.ps1` resolves paths, seeds `AGENTS.md`, builds the wiki from
+whatever exists, registers the MCP server and verifies the result. It is
+idempotent. Options:
+
+```powershell
+.\install-wiki.ps1 -Vault D:\notes\brain -Workspace C:\work\project
+.\install-wiki.ps1 -SkipMcp
+```
+
+### Three modes, decided by what exists on disk
+
+| Mode | Condition | Result |
+|---|---|---|
+| `empty` | no `memory.db` yet | Tools report the gap and exit cleanly — nothing crashes |
+| `memory-only` | a database, no source workspace | A complete wiki: topics, entities, learnings, sessions, tasks |
+| `full` | plus a source workspace | Workspace documents classified and imported alongside |
+
+Paths resolve **env var → `~/.copilot/wiki-config.json` → default**, so nothing
+is tied to one machine:
+
+| Setting | Env var | Default |
+|---|---|---|
+| vault | `LTM_WIKI_VAULT` | `~/ltm-vault` |
+| source workspace | `LTM_WIKI_WORKSPACE` | none (memory-only) |
+| memory db | `LTM_MEMORY_DB` | `~/.copilot/memory.db` |
+| session store | `LTM_SESSION_DB` | `~/.copilot/session-store.db` |
+
+```powershell
+python wiki\config.py       # show resolved paths and mode
+```
+
+### Querying — the harness layer
+
+Registering the MCP server puts these in the agent's tool list on **every turn**,
+which is the difference between an instruction the agent may follow and a tool it
+simply uses:
+
+| Tool | Purpose |
+|---|---|
+| `memory_search` | **FTS5 over every fact.** Works with no vault, no Obsidian, no build step. |
+| `vault_search` | ranked page lookup with summaries |
+| `vault_read` | a page in full |
+| `vault_index` | the catalogue, whole or one section |
+| `vault_recent` | recent entries from the append-only log |
+| `vault_file_answer` | file an analysis back as a durable page |
+
+The FTS query is sanitised on failure, so paths, emails and filenames — the
+things people actually search for — do not raise `fts5: syntax error`.
+
+Same operations from the shell, no MCP required:
+
+```powershell
+cd wiki
+python wiki.py search "term"                        # ranked lookup
+python wiki.py file-answer "Title" --body-file a.md # file an answer back
+python wiki.py recent                               # what changed lately
+```
+
+### Two navigation files
+
+- **`index.md`** — content catalogue, every page with a one-line gist. Read
+  first to choose pages; this replaces embedding-based retrieval at this scale.
+- **`log.md`** — chronological, append-only, fixed `## [date] type | title`
+  prefix so `grep "^## \[" log.md | tail -5` answers "what changed lately".
+
+### Linting — health of the content, not just the graph
+
+```powershell
+python validate.py           # links, orphans, duplicate names, frontmatter
+python lint.py               # contradictions, corrections, staleness, coverage gaps
+python check_frontmatter.py  # every frontmatter block parses as real YAML
+```
+
+`lint.py` reads memory directly and reports:
+
+| Check | Signal |
+|---|---|
+| **Contradictions** | Two facts on a topic overlap heavily and one explicitly announces a correction |
+| **Corrections** | Facts saying they overturn something — verify the claim they replace is marked `superseded`, not still active |
+| **Stale** | Pages whose source has not moved in 120 days |
+| **Coverage** | Concepts referenced often with no page of their own |
+| **Thin** / **Unfiled** | Pages carrying almost nothing; topics with load-bearing facts but no synthesis |
+
+Findings are reported, never auto-fixed — resolving a contradiction is a
+judgement about which claim is right.
+
+Obsidian does some of this natively and better, because the result is live and
+clickable: **Graph view** filters show orphans and unresolved links, the
+**Backlinks pane** shows *unlinked mentions*, and the generated **Bases** views
+in `00-Meta/Views/` are sortable tables over frontmatter.
+
+### Staying in sync
+
+Memory writes mark the wiki stale automatically — `Add-Fact`, `Remember-This`,
+`Add-Topic`, `Add-Entity`, `Add-Snapshot` and `Set-Identity` drop a marker
+(instant); the rebuild happens at a natural boundary.
+
+```powershell
+Sync-Vault           # incremental — memory + sessions
+Sync-Vault -Full     # also rescan the source workspace
+Sync-Vault -Status   # what would happen, changes nothing
+```
+
+Rebuilds also run on `Export-MemoryContext`, `Matrix-Load`, and at session end.
+Set `$env:LTM_VAULT_AUTOSYNC = '1'` for a background rebuild on every write.
+
+Guarantees: skipped when clean · serialised by a lock file · **a failed sync
+leaves the marker set so the next run retries** · the sessionEnd hook is
+best-effort and can never break the hook or lose memory data.
+
+> Incremental sync does **not** see new or changed workspace files — it rebuilds
+> from memory and the session store only. Run `Sync-Vault -Full` after adding
+> documents.
+
+### What you may edit
+
+Every generated page carries `generated: true` plus an `origin`. The builder
+deletes and recreates exactly those; **anything you write by hand survives**, and
+is surfaced under *Hand-authored notes* on the vault's `Home`.
+
+| Kind of knowledge | Where it belongs |
+|---|---|
+| An atomic fact | memory — `Remember-This`, then `Sync-Vault` |
+| An argument, comparison or analysis | a page — `wiki.py file-answer` |
+
+Filing answers back is what makes the wiki compound instead of plateau. An
+analysis left in chat history is lost.
+
+`wiki/templates/AGENTS.md` is the operating contract seeded into every new vault.
+It tells an agent to read the index first, ground answers in existing pages, flag
+contradictions rather than silently resolving them, and never edit generated
+pages.
 
 ---
 
@@ -91,7 +259,30 @@ needed day to day. Three properties worth knowing:
 | `ltm_maintain.py` | Retention and compaction: archive stale topics, prune retired facts, dedupe, VACUUM |
 | `ltm_backup.py` | Business continuity: verified snapshots, rotation, status, restore |
 | `test_ltm_ops.py` | Tests for retention and continuity, including a real destroy-and-restore drill |
+| `test_vault_sync.py` | Tests for the wiki bridge — lock, opt-out, marker lifecycle, incremental scoping |
+| `install-wiki.ps1` | Bootstrap the wiki layer: config, vault skeleton, build, MCP registration, verification |
+| `wiki/` | The knowledge-wiki layer (see [The knowledge wiki](#the-knowledge-wiki)) |
 | `CAPABILITIES.md` | **Agent reference** — current state, fixed defects, invariants, extension guide |
+
+### Inside `wiki/`
+
+| File | Purpose |
+|------|---------|
+| `config.py` | Path and mode resolution — env var → `wiki-config.json` → default |
+| `vaultlib.py` | Folder plan, classification, scanning, DB loading, note buffering and flush |
+| `notes.py` | Note generation — entities, topics, learnings, imports, sessions, work log |
+| `build.py` | Entry point — builds notes, maps of content, Obsidian config |
+| `navfiles.py` | `index.md` catalogue and `log.md` append-only chronology |
+| `bases.py` | Obsidian **Bases** views generated from note frontmatter |
+| `sync.py` | Marker, lock and throttled rebuild — what `Sync-Vault` calls |
+| `wiki.py` | Query CLI — `search`, `file-answer`, `log`, `recent` |
+| `vault_mcp.py` | **MCP server** — `memory_search` (FTS5) plus the vault tools |
+| `lint.py` | Content health — contradictions, staleness, coverage gaps |
+| `validate.py` | Graph health — links, orphans, duplicate names |
+| `check_frontmatter.py` | Every frontmatter block parses as real YAML |
+| `templates/AGENTS.md` | Operating contract seeded into each new vault |
+| `test_bootstrap.py` | **Virgin-setup proof** — empty, memory-only and full modes end to end |
+| `test_vault_mcp.py` | Drives the MCP server over stdio as the harness does |
 
 Run everything:
 
@@ -99,6 +290,10 @@ Run everything:
 Set-Location .\long-term-memory
 $env:PYTHONIOENCODING = "utf-8"
 python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
+
+# the wiki layer has two standalone harnesses
+python wiki\test_bootstrap.py    # bootstraps into a temp dir; touches nothing real
+python wiki\test_vault_mcp.py    # MCP protocol conformance
 ```
 
 ---
@@ -305,6 +500,7 @@ that has never been restored is a hypothesis, not a guarantee.
 | Weekly | `Invoke-MemoryMaintenance` — review the dry run |
 | Monthly | `Invoke-MemoryMaintenance -Apply` |
 | Quarterly | `Restore-Memory` dry run to confirm recoverability; `python ltm_bench.py` to catch regressions |
+| Occasionally | `python wiki\lint.py` — contradictions, superseded claims, coverage gaps |
 
 ---
 
@@ -315,6 +511,7 @@ that has never been restored is a hypothesis, not a guarantee.
 git clone <your-repo-url>
 Set-Location .\long-term-memory
 .\install-memory.ps1 -IncludeInstalledPluginAgents -IncludeMarketplaceCacheAgents
+.\install-wiki.ps1                      # optional: the knowledge wiki layer
 ```
 
 That will:

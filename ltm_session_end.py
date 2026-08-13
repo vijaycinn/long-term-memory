@@ -286,51 +286,32 @@ def auto_backup(hook_input, interval_hours=12):
 
 
 def sync_obsidian_vault(hook_input, mode="memory-only"):
-    """Bring the VJ-Agency Obsidian vault level with memory at session end.
+    """Bring the knowledge wiki level with memory at session end.
 
     Session end is when the session's facts, entities and checkpoints have all
     landed, so it is the point at which a rebuild captures everything. Runs the
-    incremental path (~6s) rather than a full workspace rescan; a full rebuild
-    is a manual `Sync-Vault -Full`.
+    incremental path rather than a full workspace rescan; a full rebuild is a
+    manual `Sync-Vault -Full`.
 
-    Best-effort — a vault problem must never break the hook or lose memory data.
-
-    The builder location resolves from `vault_build_dir` in the hook input, then
-    $LTM_VAULT_BUILD_DIR, then the default path. When no builder is present the
-    function is a no-op, so the hook works unchanged on a machine without the
-    vault.
+    Delegates to wiki/sync.py, which owns path resolution, the dirty marker and
+    the lock. Best-effort — a wiki problem must never break the hook or lose
+    memory data, and when the wiki layer is absent this is a no-op.
     """
     try:
-        build_dir = (hook_input.get("vault_build_dir")
-                     or os.environ.get("LTM_VAULT_BUILD_DIR")
-                     or r"C:\workspace\agency\obsidian\_build")
-        build_py = os.path.join(build_dir, "build.py")
-        if not os.path.isfile(build_py):
+        wiki_dir = (hook_input.get("wiki_dir")
+                    or os.environ.get("LTM_WIKI_DIR")
+                    or os.path.join(os.path.dirname(os.path.abspath(__file__)), "wiki"))
+        sync_py = os.path.join(wiki_dir, "sync.py")
+        if not os.path.isfile(sync_py):
             return None
         if hook_input.get("skip_vault_sync"):
             return {"skipped": True, "reason": "disabled"}
-
-        lock = os.path.join(build_dir, ".vault-sync.lock")
-        try:
-            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            return {"skipped": True, "reason": "locked"}
-        try:
-            args = [sys.executable, build_py]
-            if mode == "memory-only":
-                args.append("--memory-only")
-            proc = subprocess.run(args, cwd=build_dir, capture_output=True,
-                                  text=True, timeout=300)
-            dirty = os.path.join(build_dir, ".vault-dirty")
-            if proc.returncode == 0 and os.path.exists(dirty):
-                os.remove(dirty)
-            return {"returncode": proc.returncode}
-        finally:
-            os.close(fd)
-            try:
-                os.remove(lock)
-            except OSError:
-                pass
+        args = [sys.executable, sync_py, "--quiet"]
+        if mode != "memory-only":
+            args.append("--full")
+        proc = subprocess.run(args, cwd=wiki_dir, capture_output=True,
+                              text=True, timeout=1800)
+        return {"returncode": proc.returncode}
     except Exception:
         return None  # best-effort; never break the hook
 

@@ -6,3 +6,12 @@ memory-context.md
 memory-backup-*.json
 seed_memory.py
 memory-backups/
+
+# Wiki build state belongs with the vault it describes, never in the repo.
+wiki/state.json
+wiki/catalog.json
+wiki/last-build.json
+wiki/dirty
+wiki/*.lock
+wiki/*.mutbak
+wiki/_*.py

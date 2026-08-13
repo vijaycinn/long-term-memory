@@ -65,122 +65,79 @@ function Get-Topic {
     Invoke-Memory @{ op="get_topic"; slug=$Slug }
 }
 
-# ── Obsidian vault bridge ─────────────────────────────────────────────
-# Memory writes are mirrored into the VJ-Agency Obsidian vault so the wiki
+# ── Knowledge wiki bridge ─────────────────────────────────────────────
+# Memory writes are mirrored into an Obsidian wiki so the knowledge base
 # reflects what memory knows. Writes only drop a marker (instant); the actual
 # rebuild is throttled, because even the incremental rebuild costs seconds and
 # a loop of Add-Fact calls must not pay that each time.
 #
-# The bridge is optional: if the builder directory does not exist, every entry
-# point is a no-op, so this module still works on a machine without the vault.
-# Point $env:LTM_VAULT_BUILD_DIR at the builder to use a different location.
+# Optional: if the wiki tooling is absent every entry point is a no-op, so this
+# module works unchanged without it. sync.py owns path resolution (env vars →
+# ~/.copilot/wiki-config.json → defaults) so nothing is duplicated here.
 
-$script:VaultBuildDir = if ($env:LTM_VAULT_BUILD_DIR) {
-    $env:LTM_VAULT_BUILD_DIR
+$script:WikiDir = if ($env:LTM_WIKI_DIR) {
+    $env:LTM_WIKI_DIR
 } else {
-    "C:\workspace\agency\obsidian\_build"
+    Join-Path $PSScriptRoot 'wiki'
 }
-$script:VaultDirtyFile = Join-Path $script:VaultBuildDir ".vault-dirty"
-$script:VaultSyncLog = Join-Path $script:VaultBuildDir ".vault-sync.log"
+$script:WikiSync = Join-Path $script:WikiDir 'sync.py'
 
 function Request-VaultSync {
     <#
-    .SYNOPSIS   Mark the vault stale after a memory write. Cheap — writes a marker only.
+    .SYNOPSIS   Mark the wiki stale after a memory write. Cheap — writes a marker only.
     .DESCRIPTION
                 Set $env:LTM_VAULT_AUTOSYNC = '1' to also kick off a hidden
-                background rebuild immediately. Otherwise the vault refreshes on
+                background rebuild immediately. Otherwise the wiki refreshes on
                 the next Sync-Vault, Export-MemoryContext or Matrix-Load.
     #>
     param([string]$Reason = "memory write")
-    if (-not (Test-Path $script:VaultBuildDir)) { return }
+    if (-not (Test-Path $script:WikiSync)) { return }
     try {
-        "$([DateTime]::UtcNow.ToString('o'))`t$Reason" |
-            Add-Content -Path $script:VaultDirtyFile -Encoding UTF8 -ErrorAction Stop
+        & python $script:WikiSync --mark $Reason 2>&1 | Out-Null
     } catch { return }
 
     if ($env:LTM_VAULT_AUTOSYNC -eq '1') {
-        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
-            "-NoProfile", "-Command",
-            ". '$PSCommandPath'; Sync-Vault -Quiet"
-        ) -ErrorAction SilentlyContinue | Out-Null
+        Start-Process -FilePath "python" -WindowStyle Hidden `
+            -ArgumentList @($script:WikiSync, "--quiet") -ErrorAction SilentlyContinue | Out-Null
     }
 }
 
 function Sync-Vault {
     <#
-    .SYNOPSIS   Rebuild the VJ-Agency Obsidian vault from memory (and optionally the workspace).
+    .SYNOPSIS   Rebuild the knowledge wiki from memory (and optionally a source workspace).
     .DESCRIPTION
                 Default is an incremental rebuild: only notes derived from
                 memory.db and the session store are regenerated, reusing the
-                cached workspace inventory (~6s). Use -Full after workspace
-                files change — that rescans ~950 files (~30s).
+                cached workspace inventory. Use -Full after workspace files
+                change — that rescans every source document.
 
                 A rebuild is skipped when nothing has changed since the last
                 sync, unless -Force is given. Concurrent runs are serialised by
                 a lock file so a background sync cannot collide with a manual one.
     .EXAMPLE    Sync-Vault
     .EXAMPLE    Sync-Vault -Full
+    .EXAMPLE    Sync-Vault -Status
     #>
     param(
         [switch]$Full,
         [switch]$Force,
+        [switch]$Status,
         [switch]$Quiet
     )
-    if (-not (Test-Path $script:VaultBuildDir)) {
-        if (-not $Quiet) { Write-Warning "Vault builder not found at $script:VaultBuildDir" }
+    if (-not (Test-Path $script:WikiSync)) {
+        if (-not $Quiet) { Write-Warning "Wiki tooling not found at $script:WikiDir" }
         return
     }
-    $dirty = Test-Path $script:VaultDirtyFile
-    if (-not $dirty -and -not $Force -and -not $Full) {
-        if (-not $Quiet) { Write-Host "📓 Vault already current (no memory writes since last sync)" }
-        return [pscustomobject]@{ synced = $false; reason = "clean" }
-    }
+    $argv = @($script:WikiSync)
+    if ($Status) { $argv += "--status" }
+    if ($Full)   { $argv += "--full" }
+    if ($Force)  { $argv += "--force" }
+    if ($Quiet)  { $argv += "--quiet" }
 
-    $lock = Join-Path $script:VaultBuildDir ".vault-sync.lock"
-    $lockStream = $null
-    try {
-        # Exclusive create; another sync holding it means our marker will be
-        # picked up by that run, so returning is correct rather than waiting.
-        $lockStream = [System.IO.File]::Open($lock, 'CreateNew', 'Write', 'None')
-    } catch {
-        if (-not $Quiet) { Write-Host "📓 Vault sync already running — skipping" }
-        return [pscustomobject]@{ synced = $false; reason = "locked" }
-    }
-
-    try {
-        $buildArgs = @("build.py")
-        if (-not $Full) { $buildArgs += "--memory-only" }
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        Push-Location $script:VaultBuildDir
-        try {
-            $out = & python @buildArgs 2>&1
-            $code = $LASTEXITCODE
-        } finally { Pop-Location }
-        $sw.Stop()
-
-        if ($code -ne 0) {
-            $out | Out-String | Set-Content $script:VaultSyncLog -Encoding UTF8
-            Write-Warning "Vault sync failed (exit $code). Output: $script:VaultSyncLog"
-            return [pscustomobject]@{ synced = $false; reason = "error"; log = $script:VaultSyncLog }
-        }
-
-        Remove-Item $script:VaultDirtyFile -Force -ErrorAction SilentlyContinue
-        $notes = ($out | Select-String -Pattern '^\[flush\] (\d+)' |
-                  Select-Object -First 1).Matches.Groups[1].Value
-        if (-not $Quiet) {
-            Write-Host ("📓 Vault synced ({0}) → {1} notes in {2:N1}s" -f `
-                ($(if ($Full) { "full" } else { "incremental" })), $notes, $sw.Elapsed.TotalSeconds)
-        }
-        [pscustomobject]@{
-            synced = $true
-            mode   = $(if ($Full) { "full" } else { "incremental" })
-            notes  = [int]$notes
-            seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
-        }
-    } finally {
-        if ($lockStream) { $lockStream.Close() }
-        Remove-Item $lock -Force -ErrorAction SilentlyContinue
-    }
+    $out = & python @argv 2>&1
+    $code = $LASTEXITCODE
+    if (-not $Quiet) { $out | ForEach-Object { Write-Host "📓 $_" } }
+    [pscustomobject]@{ ok = ($code -eq 0); exitCode = $code; output = ($out -join "`n") }
 }
 
 function Add-Fact {

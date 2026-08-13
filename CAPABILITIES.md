@@ -10,7 +10,7 @@ design together, and how to extend it safely.
 | **Schema version** | **3** |
 | Driver ops | 15 |
 | PowerShell cmdlets | 26 |
-| Tests | **148** across 7 files |
+| Tests | **172** unittest across 7 files, plus 2 standalone harnesses |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
 
@@ -84,25 +84,37 @@ Retrieve: `Search-Memory`, `Get-Topic`, `Get-MemoryStats`, `Matrix-Load`, `Expor
 Maintain: `Invoke-MemoryMigration`, `Invoke-MemoryMaintenance`, `Lint-Memory`, `Export-Wiki`
 Continuity: `Backup-Memory`, `Get-MemoryBackupStatus`, `Restore-Memory`, `Export-MemoryVersion`
 Sync: `Sync-AgentMemory` (`-WhatIf` to preview, `-SinceHours 0` for a full backfill)
-Vault: `Sync-Vault` (`-Full` to rescan the workspace, `-Force` to rebuild when clean), `Request-VaultSync`
+Wiki: `Sync-Vault` (`-Full` to rescan the workspace, `-Force`, `-Status`), `Request-VaultSync`
 
-### Obsidian vault bridge
+### The knowledge wiki (`wiki/`)
 
-Memory writes are mirrored into an Obsidian vault so the wiki reflects what
-memory knows. `Add-Fact`, `Remember-This`, `Add-Topic`, `Add-Entity`,
-`Add-Snapshot` and `Set-Identity` call `Request-VaultSync`, which **only drops a
-`.vault-dirty` marker** — the rebuild itself runs on `Export-MemoryContext`,
-`Matrix-Load`, or the sessionEnd hook (`sync_obsidian_vault`). Set
-`$env:LTM_VAULT_AUTOSYNC = '1'` for a background rebuild on every write.
+Memory answers one fact at a time; the wiki compiles memory + the session store
++ an optional source workspace into a cross-referenced Obsidian vault, following
+Karpathy's LLM-wiki pattern. See the README section *The knowledge wiki* and
+`wiki/templates/AGENTS.md` (the operating contract seeded into every vault).
 
-The split matters: the incremental rebuild costs ~6 s and a full one ~30 s, so
-syncing inline on every `Add-Fact` would make a loop of writes unusable.
+Memory writes call `Request-VaultSync`, which **only drops a marker** — the
+rebuild runs on `Export-MemoryContext`, `Matrix-Load`, or the sessionEnd hook
+(`sync_obsidian_vault`). The split matters: an incremental rebuild costs seconds
+and a full one much longer, so syncing inline on every `Add-Fact` would make a
+loop of writes unusable.
 
-Entirely optional. Locate the builder with `$env:LTM_VAULT_BUILD_DIR` (or
-`vault_build_dir` in the hook input); when no builder is present every entry
-point is a no-op, so this module works unchanged without a vault. The sessionEnd
-hook is best-effort — a vault failure can never break the hook or lose memory
-data — and a failed sync leaves the marker set so the next run retries.
+**Query surface.** `wiki/vault_mcp.py` is an MCP server exposing `memory_search`
+(FTS5 straight against `memory.db` — works with no vault and no Obsidian) plus
+`vault_search`, `vault_read`, `vault_index`, `vault_recent` and
+`vault_file_answer`. MCP tools sit in the agent's tool list on every turn, which
+is why this is more reliable than an instruction or a skill.
+
+**Three modes**, decided purely by what exists on disk: `empty` (no database —
+tools report and exit cleanly), `memory-only` (a full wiki from memory alone),
+`full` (plus workspace documents). Paths resolve env var →
+`~/.copilot/wiki-config.json` → default, so nothing is machine-specific.
+Proven by `wiki/test_bootstrap.py`, which exercises all three in a temp
+directory.
+
+Entirely optional. When the wiki layer is absent every entry point is a no-op,
+and the sessionEnd hook is best-effort — a wiki failure can never break the hook
+or lose memory data.
 
 ---
 
@@ -303,10 +315,17 @@ python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
 | `test_lint.py` | 14 | Health checks |
-| `test_vault_sync.py` | 11 | Obsidian vault bridge — lock, opt-out, marker lifecycle, builder resolution, incremental scoping |
+| `test_vault_sync.py` | 14 | Wiki bridge — sessionEnd hook, sync marker/lock/retry, incremental scoping |
 | `test_session_start.py` | 9 | sessionStart hook |
 | `test_session_end.py` | 9 | sessionEnd hook |
-| **Total** | **169** | |
+| **Total** | **172** | |
+
+Two standalone harnesses run outside `unittest`:
+
+| Harness | Covers |
+|---|---|
+| `wiki/test_bootstrap.py` | **Virgin setup** — empty, memory-only and full modes end to end in a temp directory, including FTS over paths, emails and FTS5 operator characters |
+| `wiki/test_vault_mcp.py` | MCP protocol conformance over real stdio JSON-RPC |
 
 **A change to trigger definitions, `export_context`, or `search_memory` must be
 accompanied by a benchmark run.** The tests prove correctness; only the
