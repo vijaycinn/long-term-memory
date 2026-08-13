@@ -514,6 +514,19 @@ Set-Location .\long-term-memory
 .\install-wiki.ps1                      # optional: the knowledge wiki layer
 ```
 
+> **Cloning a private copy with more than one GitHub account signed in.** `gh`
+> uses its *active* account for git credentials, so a clone can fail with
+> `Repository not found` even though the repository exists and you have access —
+> the error is indistinguishable from a genuine 404. Switch first:
+>
+> ```powershell
+> gh auth status                 # which account is active?
+> gh auth switch --user <owner>  # or: gh repo clone <owner>/<repo>
+> ```
+>
+> Inside an already-cloned copy this is invisible, because a per-repo
+> `credential.helper` pins the right token.
+
 That will:
 
 1. create or update `C:\Users\<you>\.copilot\memory.db`
