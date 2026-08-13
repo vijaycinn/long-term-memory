@@ -9,8 +9,8 @@ design together, and how to extend it safely.
 |---|---|
 | **Schema version** | **3** |
 | Driver ops | 15 |
-| PowerShell cmdlets | 24 |
-| Tests | **137** across 6 files |
+| PowerShell cmdlets | 26 |
+| Tests | **148** across 7 files |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
 
@@ -22,7 +22,7 @@ design together, and how to extend it safely.
   Agent / user
        │
        ▼
-  memory.ps1 ............ PowerShell surface (24 cmdlets)
+  memory.ps1 ............ PowerShell surface (26 cmdlets)
        │  JSON over stdin/stdout, one python process per call
        ▼
   memory_driver.py ...... op dispatch (15 ops)
@@ -84,6 +84,25 @@ Retrieve: `Search-Memory`, `Get-Topic`, `Get-MemoryStats`, `Matrix-Load`, `Expor
 Maintain: `Invoke-MemoryMigration`, `Invoke-MemoryMaintenance`, `Lint-Memory`, `Export-Wiki`
 Continuity: `Backup-Memory`, `Get-MemoryBackupStatus`, `Restore-Memory`, `Export-MemoryVersion`
 Sync: `Sync-AgentMemory` (`-WhatIf` to preview, `-SinceHours 0` for a full backfill)
+Vault: `Sync-Vault` (`-Full` to rescan the workspace, `-Force` to rebuild when clean), `Request-VaultSync`
+
+### Obsidian vault bridge
+
+Memory writes are mirrored into an Obsidian vault so the wiki reflects what
+memory knows. `Add-Fact`, `Remember-This`, `Add-Topic`, `Add-Entity`,
+`Add-Snapshot` and `Set-Identity` call `Request-VaultSync`, which **only drops a
+`.vault-dirty` marker** — the rebuild itself runs on `Export-MemoryContext`,
+`Matrix-Load`, or the sessionEnd hook (`sync_obsidian_vault`). Set
+`$env:LTM_VAULT_AUTOSYNC = '1'` for a background rebuild on every write.
+
+The split matters: the incremental rebuild costs ~6 s and a full one ~30 s, so
+syncing inline on every `Add-Fact` would make a loop of writes unusable.
+
+Entirely optional. Locate the builder with `$env:LTM_VAULT_BUILD_DIR` (or
+`vault_build_dir` in the hook input); when no builder is present every entry
+point is a no-op, so this module works unchanged without a vault. The sessionEnd
+hook is best-effort — a vault failure can never break the hook or lose memory
+data — and a failed sync leaves the marker set so the next run retries.
 
 ---
 
@@ -280,13 +299,14 @@ python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
 
 | File | Tests | Covers |
 |------|------:|--------|
-| `test_memory_driver.py` | 51 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
+| `test_memory_driver.py` | 71 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
 | `test_lint.py` | 14 | Health checks |
+| `test_vault_sync.py` | 11 | Obsidian vault bridge — lock, opt-out, marker lifecycle, builder resolution, incremental scoping |
 | `test_session_start.py` | 9 | sessionStart hook |
-| `test_session_end.py` | 8 | sessionEnd hook |
-| **Total** | **137** | |
+| `test_session_end.py` | 9 | sessionEnd hook |
+| **Total** | **169** | |
 
 **A change to trigger definitions, `export_context`, or `search_memory` must be
 accompanied by a benchmark run.** The tests prove correctness; only the

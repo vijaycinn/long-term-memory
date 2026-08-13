@@ -50,8 +50,10 @@ function Add-Topic {
         [string]$Description = "",
         [ValidateSet('active','archived','resolved')][string]$Status = "active"
     )
-    Invoke-Memory @{ op="add_topic"; slug=$Slug; title=$Title; category=$Category;
+    $result = Invoke-Memory @{ op="add_topic"; slug=$Slug; title=$Title; category=$Category;
                      description=$Description; status=$Status }
+    Request-VaultSync -Reason "Add-Topic"
+    $result
 }
 
 function Get-Topic {
@@ -61,6 +63,124 @@ function Get-Topic {
     #>
     param([Parameter(Mandatory)][string]$Slug)
     Invoke-Memory @{ op="get_topic"; slug=$Slug }
+}
+
+# ── Obsidian vault bridge ─────────────────────────────────────────────
+# Memory writes are mirrored into the VJ-Agency Obsidian vault so the wiki
+# reflects what memory knows. Writes only drop a marker (instant); the actual
+# rebuild is throttled, because even the incremental rebuild costs seconds and
+# a loop of Add-Fact calls must not pay that each time.
+#
+# The bridge is optional: if the builder directory does not exist, every entry
+# point is a no-op, so this module still works on a machine without the vault.
+# Point $env:LTM_VAULT_BUILD_DIR at the builder to use a different location.
+
+$script:VaultBuildDir = if ($env:LTM_VAULT_BUILD_DIR) {
+    $env:LTM_VAULT_BUILD_DIR
+} else {
+    "C:\workspace\agency\obsidian\_build"
+}
+$script:VaultDirtyFile = Join-Path $script:VaultBuildDir ".vault-dirty"
+$script:VaultSyncLog = Join-Path $script:VaultBuildDir ".vault-sync.log"
+
+function Request-VaultSync {
+    <#
+    .SYNOPSIS   Mark the vault stale after a memory write. Cheap — writes a marker only.
+    .DESCRIPTION
+                Set $env:LTM_VAULT_AUTOSYNC = '1' to also kick off a hidden
+                background rebuild immediately. Otherwise the vault refreshes on
+                the next Sync-Vault, Export-MemoryContext or Matrix-Load.
+    #>
+    param([string]$Reason = "memory write")
+    if (-not (Test-Path $script:VaultBuildDir)) { return }
+    try {
+        "$([DateTime]::UtcNow.ToString('o'))`t$Reason" |
+            Add-Content -Path $script:VaultDirtyFile -Encoding UTF8 -ErrorAction Stop
+    } catch { return }
+
+    if ($env:LTM_VAULT_AUTOSYNC -eq '1') {
+        Start-Process -FilePath "powershell" -WindowStyle Hidden -ArgumentList @(
+            "-NoProfile", "-Command",
+            ". '$PSCommandPath'; Sync-Vault -Quiet"
+        ) -ErrorAction SilentlyContinue | Out-Null
+    }
+}
+
+function Sync-Vault {
+    <#
+    .SYNOPSIS   Rebuild the VJ-Agency Obsidian vault from memory (and optionally the workspace).
+    .DESCRIPTION
+                Default is an incremental rebuild: only notes derived from
+                memory.db and the session store are regenerated, reusing the
+                cached workspace inventory (~6s). Use -Full after workspace
+                files change — that rescans ~950 files (~30s).
+
+                A rebuild is skipped when nothing has changed since the last
+                sync, unless -Force is given. Concurrent runs are serialised by
+                a lock file so a background sync cannot collide with a manual one.
+    .EXAMPLE    Sync-Vault
+    .EXAMPLE    Sync-Vault -Full
+    #>
+    param(
+        [switch]$Full,
+        [switch]$Force,
+        [switch]$Quiet
+    )
+    if (-not (Test-Path $script:VaultBuildDir)) {
+        if (-not $Quiet) { Write-Warning "Vault builder not found at $script:VaultBuildDir" }
+        return
+    }
+    $dirty = Test-Path $script:VaultDirtyFile
+    if (-not $dirty -and -not $Force -and -not $Full) {
+        if (-not $Quiet) { Write-Host "📓 Vault already current (no memory writes since last sync)" }
+        return [pscustomobject]@{ synced = $false; reason = "clean" }
+    }
+
+    $lock = Join-Path $script:VaultBuildDir ".vault-sync.lock"
+    $lockStream = $null
+    try {
+        # Exclusive create; another sync holding it means our marker will be
+        # picked up by that run, so returning is correct rather than waiting.
+        $lockStream = [System.IO.File]::Open($lock, 'CreateNew', 'Write', 'None')
+    } catch {
+        if (-not $Quiet) { Write-Host "📓 Vault sync already running — skipping" }
+        return [pscustomobject]@{ synced = $false; reason = "locked" }
+    }
+
+    try {
+        $buildArgs = @("build.py")
+        if (-not $Full) { $buildArgs += "--memory-only" }
+        $sw = [System.Diagnostics.Stopwatch]::StartNew()
+        Push-Location $script:VaultBuildDir
+        try {
+            $out = & python @buildArgs 2>&1
+            $code = $LASTEXITCODE
+        } finally { Pop-Location }
+        $sw.Stop()
+
+        if ($code -ne 0) {
+            $out | Out-String | Set-Content $script:VaultSyncLog -Encoding UTF8
+            Write-Warning "Vault sync failed (exit $code). Output: $script:VaultSyncLog"
+            return [pscustomobject]@{ synced = $false; reason = "error"; log = $script:VaultSyncLog }
+        }
+
+        Remove-Item $script:VaultDirtyFile -Force -ErrorAction SilentlyContinue
+        $notes = ($out | Select-String -Pattern '^\[flush\] (\d+)' |
+                  Select-Object -First 1).Matches.Groups[1].Value
+        if (-not $Quiet) {
+            Write-Host ("📓 Vault synced ({0}) → {1} notes in {2:N1}s" -f `
+                ($(if ($Full) { "full" } else { "incremental" })), $notes, $sw.Elapsed.TotalSeconds)
+        }
+        [pscustomobject]@{
+            synced = $true
+            mode   = $(if ($Full) { "full" } else { "incremental" })
+            notes  = [int]$notes
+            seconds = [math]::Round($sw.Elapsed.TotalSeconds, 1)
+        }
+    } finally {
+        if ($lockStream) { $lockStream.Close() }
+        Remove-Item $lock -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Add-Fact {
@@ -91,9 +211,11 @@ function Add-Fact {
         $topicRow = Invoke-Memory @{ op="add_topic"; slug=$TopicSlug; title=$TopicSlug; category="research" }
         $topicId  = $topicRow.topic_id
     }
-    Invoke-Memory @{ op="add_fact"; content=$Content; topic_id=$topicId;
+    $result = Invoke-Memory @{ op="add_fact"; content=$Content; topic_id=$topicId;
                      fact_type=$FactType; confidence=$Confidence; importance=$Importance;
                      source=$Source; session_id=$SessionId }
+    Request-VaultSync -Reason "Add-Fact"
+    $result
 }
 
 function Remember-This {
@@ -128,6 +250,7 @@ function Remember-This {
     $r = Invoke-Memory @{ op="batch"; ops=$ops }
     $fact = $r.results[1]
     $ctx  = $r.results[2]
+    Request-VaultSync -Reason "Remember-This"
 
     [pscustomobject]@{
         remembered   = $true
@@ -153,8 +276,10 @@ function Add-Entity {
         [string]$Attributes = "",
         [switch]$IsSelf
     )
-    Invoke-Memory @{ op="add_entity"; name=$Name; entity_type=$EntityType;
+    $result = Invoke-Memory @{ op="add_entity"; name=$Name; entity_type=$EntityType;
                      is_self=([int]$IsSelf.IsPresent); notes=$Notes; attributes=$Attributes }
+    Request-VaultSync -Reason "Add-Entity"
+    $result
 }
 
 function Add-Snapshot {
@@ -173,10 +298,12 @@ function Add-Snapshot {
         [string]$SourceSession = ""
     )
     $topicRow = Add-Topic -Slug $TopicSlug -Title $TopicSlug -Category "research"
-    Invoke-Memory @{ op="add_snapshot"; topic_id=$topicRow.topic_id; title=$Title;
+    $result = Invoke-Memory @{ op="add_snapshot"; topic_id=$topicRow.topic_id; title=$Title;
                      summary=$Summary; findings=$Findings; decisions=$Decisions;
                      open_questions=$OpenQuestions; next_steps=$NextSteps;
                      source_session=$SourceSession }
+    Request-VaultSync -Reason "Add-Snapshot"
+    $result
 }
 
 function Touch-Fact {
@@ -241,8 +368,10 @@ function Set-Identity {
         [string]$Notes      = "",
         [string]$Attributes = ""
     )
-    Invoke-Memory @{ op="set_identity"; name=$Name; entity_type=$EntityType;
+    $result = Invoke-Memory @{ op="set_identity"; name=$Name; entity_type=$EntityType;
                      notes=$Notes; attributes=$Attributes }
+    Request-VaultSync -Reason "Set-Identity"
+    $result
 }
 
 function Invoke-MemoryMigration {
@@ -290,6 +419,9 @@ function Matrix-Load {
 
     if ($Refresh -or -not (Test-Path $script:MemoryContextFile)) {
         $null = Export-MemoryContext
+    } else {
+        # Bring the vault level with memory even when the bridge is still fresh.
+        $null = Sync-Vault
     }
 
     $stats = Invoke-Memory @{ op="get_stats" }
@@ -337,7 +469,8 @@ function Export-MemoryContext {
         [int]$MaxFacts      = 40,
         [ValidateRange(1,5)][int]$MinImportance = 4,
         [int]$EntityLimit   = 15,
-        [int]$PendingLimit  = 10
+        [int]$PendingLimit  = 10,
+        [switch]$SkipVault
     )
     $result = Invoke-Memory @{ op="export_context"; topic_limit=$TopicLimit;
                                per_topic_facts=$PerTopicFacts; max_facts=$MaxFacts;
@@ -348,6 +481,9 @@ function Export-MemoryContext {
         Write-Host ("   Topics: {0} | Facts: {1} | Snapshots: {2} | Pending: {3} | Entities: {4}" -f `
             $result.topics_loaded, $result.facts_loaded, $result.snapshots_loaded,
             $result.pending_loaded, $result.entities_loaded)
+        # Exporting the bridge is the natural point to bring the Obsidian vault
+        # level with memory. No-ops when nothing has changed since last sync.
+        if (-not $SkipVault) { $null = Sync-Vault }
     }
     $result
 }

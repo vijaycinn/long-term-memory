@@ -285,6 +285,56 @@ def auto_backup(hook_input, interval_hours=12):
         return None  # best-effort; never break the hook
 
 
+def sync_obsidian_vault(hook_input, mode="memory-only"):
+    """Bring the VJ-Agency Obsidian vault level with memory at session end.
+
+    Session end is when the session's facts, entities and checkpoints have all
+    landed, so it is the point at which a rebuild captures everything. Runs the
+    incremental path (~6s) rather than a full workspace rescan; a full rebuild
+    is a manual `Sync-Vault -Full`.
+
+    Best-effort — a vault problem must never break the hook or lose memory data.
+
+    The builder location resolves from `vault_build_dir` in the hook input, then
+    $LTM_VAULT_BUILD_DIR, then the default path. When no builder is present the
+    function is a no-op, so the hook works unchanged on a machine without the
+    vault.
+    """
+    try:
+        build_dir = (hook_input.get("vault_build_dir")
+                     or os.environ.get("LTM_VAULT_BUILD_DIR")
+                     or r"C:\workspace\agency\obsidian\_build")
+        build_py = os.path.join(build_dir, "build.py")
+        if not os.path.isfile(build_py):
+            return None
+        if hook_input.get("skip_vault_sync"):
+            return {"skipped": True, "reason": "disabled"}
+
+        lock = os.path.join(build_dir, ".vault-sync.lock")
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return {"skipped": True, "reason": "locked"}
+        try:
+            args = [sys.executable, build_py]
+            if mode == "memory-only":
+                args.append("--memory-only")
+            proc = subprocess.run(args, cwd=build_dir, capture_output=True,
+                                  text=True, timeout=300)
+            dirty = os.path.join(build_dir, ".vault-dirty")
+            if proc.returncode == 0 and os.path.exists(dirty):
+                os.remove(dirty)
+            return {"returncode": proc.returncode}
+        finally:
+            os.close(fd)
+            try:
+                os.remove(lock)
+            except OSError:
+                pass
+    except Exception:
+        return None  # best-effort; never break the hook
+
+
 def main():
     try: hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, EOFError): hook_input = {}
@@ -300,6 +350,9 @@ def main():
     refresh_ltm_instructions(hook_input)
     # Continuity: throttled, verified snapshot so RPO stays bounded automatically.
     auto_backup(hook_input)
+    # Mirror everything this session learned into the Obsidian vault. Runs last
+    # so it captures the facts extracted above, including the agent-memory sync.
+    sync_obsidian_vault(hook_input)
 
 if __name__ == "__main__":
     main()
