@@ -56,7 +56,16 @@ def seed_memory(db: Path):
         CREATE TABLE ltm_patterns (id INTEGER PRIMARY KEY, session_id TEXT,
             pattern_type TEXT, description TEXT, repository TEXT, cwd TEXT,
             created_at TEXT);
-        CREATE VIRTUAL TABLE memory_fts USING fts5(content);
+        -- Mirror production exactly: memory_fts is a COMBINED index over facts,
+        -- entities, topics and snapshots, and the source key lives in row_id (which
+        -- is only unique within a table_name bucket), NOT in the implicit rowid.
+        -- A single-column fixture keyed by rowid made `JOIN facts ON id = m.rowid`
+        -- pass here while returning the wrong fact in production.
+        CREATE VIRTUAL TABLE memory_fts USING fts5(
+            content,
+            row_id     UNINDEXED,
+            table_name UNINDEXED
+        );
     """)
     c.execute("INSERT INTO topics VALUES (1,'widget-pricing','Widget Pricing',"
               "'research','How widgets are priced','active','2026-01-02',"
@@ -76,8 +85,18 @@ def seed_memory(db: Path):
          "2026-01-02", "2026-01-02", "2026-01-02"),
     ]
     c.executemany("INSERT INTO facts VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    # Index non-fact rows FIRST so the FTS rowid sequence is deliberately offset
+    # from facts.id. Without that offset a wrong join on m.rowid still lines up by
+    # coincidence and the test passes while production returns the wrong fact.
+    c.execute("INSERT INTO memory_fts(content, row_id, table_name) "
+              "VALUES ('widget-pricing Widget Pricing How widgets are priced', 1, 'topics')")
+    c.execute("INSERT INTO memory_fts(content, row_id, table_name) "
+              "VALUES ('Acme Corp Largest widget buyer', 1, 'entities')")
+    c.execute("INSERT INTO memory_fts(content, row_id, table_name) "
+              "VALUES ('Pricing review Prices fell. Analyzer switch was the cause.', 1, 'snapshots')")
     for r in rows:
-        c.execute("INSERT INTO memory_fts(rowid, content) VALUES (?,?)", (r[0], r[1]))
+        c.execute("INSERT INTO memory_fts(content, row_id, table_name) VALUES (?,?,'facts')",
+                  (r[1], r[0]))
     c.execute("INSERT INTO entities VALUES (1,'Acme Corp','account',0,'{}',"
               "'Largest widget buyer','2026-01-01','2026-01-02')")
     c.execute("INSERT INTO entities VALUES (2,'Test User','person',1,"

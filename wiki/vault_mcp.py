@@ -245,6 +245,13 @@ def _sanitise_fts(q: str) -> str:
 
 
 def _fts_query(con, q: str, limit: int):
+    # memory_fts is a COMBINED index over facts, entities, topics and snapshots,
+    # so its implicit rowid is its own sequence and does NOT equal facts.id.
+    # (Observed: 924 fts rows with max rowid 1127 against 669 facts with max id
+    # 683.) Joining on m.rowid silently returned a different fact than the one
+    # that matched -- every result was wrong, which is worse than no results
+    # because it reads as a confident answer. The triggers store the real key in
+    # the row_id column, alongside table_name to disambiguate the source table.
     sql = """
         SELECT f.content   AS content,
                f.fact_type AS kind,
@@ -252,7 +259,7 @@ def _fts_query(con, q: str, limit: int):
                f.source    AS source,
                t.title     AS topic
         FROM memory_fts m
-        JOIN facts f ON f.id = m.rowid
+        JOIN facts f ON f.id = m.row_id AND m.table_name = 'facts'
         LEFT JOIN topics t ON t.id = f.topic_id
         WHERE memory_fts MATCH ?
           AND COALESCE(f.status, 'active') = 'active'
