@@ -161,6 +161,29 @@ def main():
               (vault / ".wiki" / "state.json").is_file()
               and not (WIKI / "state.json").exists())
 
+        # The Bases views and the Obsidian config are what make a fresh vault
+        # *usable* rather than merely present - without them a teammate on a new
+        # machine opens a folder of notes with no saved views and a default graph.
+        # They were wired into the build but nothing asserted on them, which is
+        # exactly the kind of regression only discovered by the person you least
+        # want discovering it.
+        views = vault / "00-Meta" / "Views"
+        bases = sorted(p.stem for p in views.glob("*.base")) if views.is_dir() else []
+        check("Bases views written", len(bases) >= 5, f"found {bases}")
+        check("Accounts base present", "Accounts" in bases, f"found {bases}")
+        check("Topics base present", "Topics" in bases, f"found {bases}")
+
+        check("Obsidian config written",
+              (vault / ".obsidian" / "app.json").is_file()
+              and (vault / ".obsidian" / "graph.json").is_file())
+
+        # Bases filter on frontmatter, so a note without `type` and `tags` is
+        # invisible to every saved view even though the file exists.
+        sample = next((vault / "05-Knowledge").rglob("*.md"), None)
+        head = sample.read_text(encoding="utf-8")[:400] if sample else ""
+        check("notes carry type in frontmatter", "type:" in head, head[:200])
+        check("notes carry tags in frontmatter", "tags:" in head, head[:200])
+
         p = run(["validate.py"], e)
         check("validate finds no broken links", "broken links   : 0" in p.stdout, p.stdout[:400])
         p = run(["check_frontmatter.py"], e)
