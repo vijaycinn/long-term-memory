@@ -128,7 +128,7 @@ function Ensure-SessionHooks {
 
         This is the step that decides whether memory actually persists. Without
         it the module still loads and Remember-This still works, but nothing
-        captures a session automatically - so a virgin machine looks correctly
+        captures a session automatically - so a greenfield machine looks correctly
         installed and quietly remembers nothing. It was previously done by hand,
         which is exactly why it is here now.
 

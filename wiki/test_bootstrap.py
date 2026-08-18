@@ -1,4 +1,4 @@
-"""Prove the wiki bootstraps on a virgin setup.
+"""Prove the wiki bootstraps on a greenfield setup.
 
 Runs the whole toolchain against a throwaway COPILOT_HOME and vault, so nothing
 touches the real environment. Covers the three modes config.py distinguishes:
@@ -8,7 +8,7 @@ touches the real environment. Covers the three modes config.py distinguishes:
   full         a database plus a source workspace
 
 The point is that none of these crash, and the middle one still produces a
-genuinely useful wiki — that is what "usable on a virgin setup" has to mean.
+genuinely useful wiki — that is what "usable on a greenfield setup" has to mean.
 """
 import json
 import os
@@ -296,7 +296,7 @@ def main():
         for f in FAILURES:
             print(" -", f[:500])
         return 1
-    print("virgin-setup bootstrap verified: empty, memory-only and full all work")
+    print("greenfield-setup bootstrap verified: empty, memory-only and full all work")
     return 0
 
 

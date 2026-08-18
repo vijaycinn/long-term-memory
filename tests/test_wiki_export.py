@@ -71,7 +71,7 @@ def create_test_db(db_path):
     )
     conn.execute(
         "INSERT INTO facts (topic_id, content, fact_type, importance, source, status) "
-        "VALUES (2, 'Azure Gov region selected: USGov Virginia', 'decision', 4, 'workshop notes', 'active')"
+        "VALUES (2, 'Azure Gov region selected: USGov Greenfieldia', 'decision', 4, 'workshop notes', 'active')"
     )
 
     # Global preference fact (no topic)

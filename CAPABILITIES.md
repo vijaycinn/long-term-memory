@@ -325,7 +325,7 @@ Two standalone harnesses run outside `unittest`:
 
 | Harness | Covers |
 |---|---|
-| `wiki/test_bootstrap.py` | **Virgin setup** — empty, memory-only and full modes end to end in a temp directory, including FTS over paths, emails and FTS5 operator characters |
+| `wiki/test_bootstrap.py` | **Greenfield setup** — empty, memory-only and full modes end to end in a temp directory, including FTS over paths, emails and FTS5 operator characters |
 | `wiki/test_vault_mcp.py` | MCP protocol conformance over real stdio JSON-RPC |
 
 **A change to trigger definitions, `export_context`, or `search_memory` must be

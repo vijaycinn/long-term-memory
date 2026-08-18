@@ -3,7 +3,7 @@
 The wiki has to run in three quite different situations, and the difference
 between them is entirely a matter of what exists on disk:
 
-  1. **Virgin machine** — memory.db may not even exist yet. Nothing should
+  1. **Greenfield machine** — memory.db may not even exist yet. Nothing should
      crash; the tools report what is missing and exit cleanly.
   2. **Memory-only** — memory.db exists, no source workspace. A perfectly
      useful wiki is still produced from topics, facts, entities, snapshots and

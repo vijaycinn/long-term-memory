@@ -41,9 +41,47 @@ Scout is a **read-first** surface. Everything you have recorded is searchable
 there; nothing new is captured for you. Keep a Copilot CLI session in play if
 you want capture to stay automatic.
 
+### Scout already has a memory — why use this one
+
+Scout keeps its own store at `$scoutHome/m-memory.json`. It is **linear and
+lossy by design**: `m-memory-settings.json` caps it at **500 memories with a
+60-day decay**, so old knowledge falls off the end rather than accumulating.
+There is no relational structure — no topics, no entities, no links, so nothing
+answers *what else touches this* or *who else has seen this*.
+
+It is also **encrypted at rest** (the file begins with an `MSE` magic header and
+is unlocked by `m-encryption-key.enc`), so it cannot be read, migrated or
+indexed by anything outside Scout — including this system.
+
+That is the reason for the split. Scout keeps its own short-term recall;
+`install-scout.ps1` gives it a second, **graph-shaped** memory it can query
+through MCP: uncapped, attributed, dated, and interlinked. The two do not merge,
+and this one does not try to convert the other.
+
+### Already have an Obsidian vault?
+
+`install-wiki.ps1` **reuses it** rather than creating a second one. It looks, in
+order, at any saved `wiki-config.json` (including Scout's own copy under
+`$scoutHome/copilot/`), then `$LTM_WIKI_VAULT`, then `~/ltm-vault`. It reports
+what it found and how many notes are already there.
+
+The build **merges**: only notes stamped `origin: memory` are rebuilt. Anything
+hand-authored, and anything imported from a workspace, is left untouched — so
+pointing this at a vault you already use is safe.
+
+Detection is deliberately conservative and will not go hunting through your
+folders for something vault-shaped. An earlier version did, and immediately
+picked an unrelated vault sitting beside the real one — which would have started
+writing memory notes into someone else's graph. If your vault is somewhere else,
+say so explicitly:
+
+```powershell
+.\setup\install-wiki.ps1 -Vault D:\notes\my-brain
+```
+
 ---
 
-## 🤖 Agent runbook — virgin environment
+## 🤖 Agent runbook — greenfield environment
 
 **Read this if you are an agent setting this up and the only thing available is
 Copilot CLI, the Copilot app, or Scout.** Run the steps in order and stop at the
@@ -121,6 +159,12 @@ python core\memory_export.py --portable      # flat, for a different agent harne
 This writes `~/.copilot/wiki-config.json`, builds the Obsidian vault, and
 registers the `vault-mcp` MCP server in `~/.copilot/mcp-config.json`.
 
+**If the user already has an Obsidian vault, it reuses it** — checking any saved
+`wiki-config.json` (including Scout's copy), then `$LTM_WIKI_VAULT`, then
+`~/ltm-vault`. The build merges: only `origin: memory` notes are rebuilt, so
+hand-authored pages survive. If their vault is elsewhere, pass `-Vault <path>`
+rather than letting it create a second one.
+
 **Yes — it sets up the Obsidian vault and the graph.** Every build writes:
 
 | Written | What it gives you |
@@ -162,6 +206,10 @@ belongs to Copilot CLI, and Scout has no equivalent. So in Scout:
 - `Remember-This` works, because Scout has a shell;
 - **nothing captures a session automatically.** If they rely on that, they
   should keep working in Copilot CLI, or record deliberately.
+
+Scout's own memory (`$scoutHome/m-memory.json`) is **not** a migration source:
+it is capped at 500 entries with 60-day decay and is encrypted at rest. This
+system runs alongside it, not instead of it.
 
 ### 5. Prove it works
 
@@ -549,7 +597,7 @@ tests/                the suite
 | `validate.py` | Graph health — links, orphans, duplicate names |
 | `check_frontmatter.py` | Every frontmatter block parses as real YAML |
 | `templates/AGENTS.md` | Operating contract seeded into each new vault |
-| `test_bootstrap.py` | **Virgin-setup proof** — empty, memory-only and full modes end to end |
+| `test_bootstrap.py` | **Greenfield-setup proof** — empty, memory-only and full modes end to end |
 | `test_vault_mcp.py` | Drives the MCP server over stdio as the harness does |
 
 ### `tests/`

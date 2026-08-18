@@ -46,6 +46,69 @@ function Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }
 function Ok($msg)   { Write-Host "    OK   $msg" -ForegroundColor Green }
 function Warn($msg) { Write-Host "    WARN $msg" -ForegroundColor Yellow }
 
+function Test-IsVault([string]$path) {
+    <# A folder is an existing vault if Obsidian has ever opened it, or if this
+       tooling has already built into it. Both markers matter: .obsidian alone
+       covers a hand-made vault, .wiki alone covers one built headlessly. #>
+    if (-not $path -or -not (Test-Path $path)) { return $false }
+    return (Test-Path (Join-Path $path '.obsidian')) -or
+           (Test-Path (Join-Path $path '.wiki')) -or
+           (Test-Path (Join-Path $path 'index.md'))
+}
+
+function Find-ExistingVault {
+    <#
+        Reuse a vault the user already has rather than creating a second, empty
+        one beside it. Without this the installer defaults to ~/ltm-vault and
+        happily builds a parallel vault, which is the worst outcome: two graphs,
+        neither complete, and no error to say so.
+
+        Detection is deliberately conservative. Only sources that say *this is
+        the LTM vault* are trusted:
+
+          1. a saved wiki-config.json (including Scout's own copy)
+          2. $LTM_WIKI_VAULT
+          3. ~/ltm-vault, which is this installer's own default
+
+        An earlier version also scanned likely folders for anything that looked
+        like a vault. That found the wrong one immediately - an unrelated team
+        vault sitting beside the real one - and binding the build to it would
+        have started writing memory notes into someone else's graph. Guessing is
+        worse than asking, so anything else now needs an explicit -Vault.
+    #>
+    $candidates = @()
+
+    foreach ($cfg in @(
+        (Join-Path $CopilotHome 'wiki-config.json'),
+        (Join-Path $HOME '.scout\copilot\wiki-config.json'),
+        (Join-Path $HOME '.copilot\wiki-config.json')
+    )) {
+        if (Test-Path $cfg) {
+            try {
+                $v = (Get-Content $cfg -Raw | ConvertFrom-Json).vault
+                if ($v) { $candidates += [pscustomobject]@{ Path = $v; Why = "configured in $(Split-Path $cfg -Leaf)" } }
+            } catch { Warn "could not parse $cfg - ignoring it" }
+        }
+    }
+
+    if ($env:LTM_WIKI_VAULT) {
+        $candidates += [pscustomobject]@{ Path = $env:LTM_WIKI_VAULT; Why = 'LTM_WIKI_VAULT' }
+    }
+
+    $candidates += [pscustomobject]@{ Path = (Join-Path $HOME 'ltm-vault'); Why = 'this installer default' }
+
+    foreach ($c in $candidates) {
+        if (Test-IsVault $c.Path) {
+            $notes = (Get-ChildItem $c.Path -Filter *.md -Recurse -ErrorAction SilentlyContinue).Count
+            Ok "reusing existing vault: $($c.Path)"
+            Ok "  $notes note(s) already there - $($c.Why)"
+            Ok "  the build merges: notes marked 'origin: memory' are rebuilt, everything else is left alone"
+            return $c.Path
+        }
+    }
+    return $null
+}
+
 Write-Host "LTM wiki bootstrap" -ForegroundColor White
 Write-Host "==================" -ForegroundColor White
 
@@ -60,7 +123,8 @@ Ok "wiki tooling at $WikiDir"
 
 # --- 1. configure ----------------------------------------------------------
 Step 1 "Resolving paths"
-if (-not $Vault) { $Vault = Join-Path $HOME 'ltm-vault' }
+if (-not $Vault) { $Vault = Find-ExistingVault }
+if (-not $Vault) { $Vault = Join-Path $HOME 'ltm-vault'; Ok "no existing vault found - will create $Vault" }
 $cfgArgs = @("vault=$Vault")
 if ($Workspace) {
     if (-not (Test-Path $Workspace)) { throw "Workspace not found: $Workspace" }

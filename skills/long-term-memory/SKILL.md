@@ -109,6 +109,12 @@ Two consequences, and be honest about both:
 2. If the user relies on automatic capture, tell them to keep working in
    Copilot CLI, or to record deliberately in Scout.
 
+**Scout's own memory is a separate thing and stays that way.** It is capped at
+500 entries with a 60-day decay, has no relational structure, and is encrypted
+at rest — so it cannot be read or migrated into this system. Do not offer to
+merge them. This store runs alongside Scout's, and is the one that answers
+*what else touches this* and *who else has seen this*.
+
 ---
 
 ## 4. Never edit generated pages
