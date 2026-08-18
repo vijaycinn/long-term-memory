@@ -1,11 +1,11 @@
-﻿# memory.ps1 — Long-term memory PowerShell module for Copilot agents.
+# memory.ps1 — Long-term memory PowerShell module for Copilot agents.
 #
 # Usage: . .\memory.ps1
 #
 # All functions pipe JSON to memory_driver.py (Python stdin), receive JSON stdout.
 # This avoids all PowerShell/Python quoting issues — strings pass through ConvertTo-Json.
 
-$script:MemoryDriver = Join-Path $PSScriptRoot "memory_driver.py"
+$script:MemoryDriver = Join-Path $PSScriptRoot "core\memory_driver.py"
 $script:MemoryDb = Join-Path $env:USERPROFILE ".copilot\memory.db"
 $script:MemoryContextFile = Join-Path $env:USERPROFILE ".copilot\memory-context.md"
 
@@ -450,7 +450,7 @@ function Export-Wiki {
     .SYNOPSIS   Generate browsable markdown wiki from LTM data at ~/.copilot/ltm-wiki/.
     .EXAMPLE    Export-Wiki
     #>
-    $driver = Join-Path $PSScriptRoot "ltm_wiki_export.py"
+    $driver = Join-Path $PSScriptRoot "ops\ltm_wiki_export.py"
     if (-not (Test-Path $driver)) {
         throw "ltm_wiki_export.py not found at $driver"
     }
@@ -469,7 +469,7 @@ function Lint-Memory {
     .SYNOPSIS   Health-check the memory database. Reports stale facts, orphaned entities, empty topics, and more.
     .EXAMPLE    Lint-Memory
     #>
-    $driver = Join-Path $PSScriptRoot "ltm_lint.py"
+    $driver = Join-Path $PSScriptRoot "ops\ltm_lint.py"
     if (-not (Test-Path $driver)) {
         throw "ltm_lint.py not found at $driver"
     }
@@ -563,7 +563,7 @@ function Sync-Memento {
         [ValidateSet('both','memento_to_ltm','ltm_to_memento')]
         [string]$Direction = "both"
     )
-    $driver = Join-Path $PSScriptRoot "ltm_memento_bridge.py"
+    $driver = Join-Path $PSScriptRoot "ops\ltm_memento_bridge.py"
     if (-not (Test-Path $driver)) {
         throw "ltm_memento_bridge.py not found at $driver"
     }
@@ -601,7 +601,7 @@ function Invoke-MemoryMaintenance {
         [int]$StaleTopicDays = 180,
         [int]$PruneDays      = 90
     )
-    $driver = Join-Path $PSScriptRoot "ltm_maintain.py"
+    $driver = Join-Path $PSScriptRoot "ops\ltm_maintain.py"
     if (-not (Test-Path $driver)) { throw "ltm_maintain.py not found at $driver" }
 
     $payload = @{ apply=[bool]$Apply; stale_topic_days=$StaleTopicDays; prune_days=$PruneDays } |
@@ -705,7 +705,7 @@ function Restore-Memory {
 
 function Invoke-LtmBackup {
     param([Parameter(Mandatory)][hashtable]$Payload)
-    $driver = Join-Path $PSScriptRoot "ltm_backup.py"
+    $driver = Join-Path $PSScriptRoot "ops\ltm_backup.py"
     if (-not (Test-Path $driver)) { throw "ltm_backup.py not found at $driver" }
     $out = ($Payload | ConvertTo-Json -Compress) | python $driver
     if ($LASTEXITCODE -ne 0) { throw "ltm_backup.py failed: $out" }
@@ -759,7 +759,7 @@ for side in (p + '-wal', p + '-shm'):
 
     # 2. Portable JSON exports: full (restorable) + flat (for other harnesses).
     $jsonPath = Join-Path $dir "memory-$stamp.json"
-    $exporter = Join-Path $PSScriptRoot "memory_export.py"
+    $exporter = Join-Path $PSScriptRoot "core\memory_export.py"
     python $exporter --output $jsonPath | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "memory_export.py failed" }
 

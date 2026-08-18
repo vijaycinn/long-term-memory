@@ -2,6 +2,154 @@
 
 Portable, persistent memory for your agents — **no daemon required** and **portable to a new machine**.
 
+---
+
+## TL;DR
+
+Three layers, deliberately separable:
+
+| Layer | What | Where it lives |
+|---|---|---|
+| **Storage** | `memory.db` — topics, facts, entities, snapshots | `~/.copilot/`, **never in this repo** |
+| **Capture** | `sessionStart` / `sessionEnd` hooks write to it automatically | `hooks/` |
+| **Search** | An Obsidian vault built from storage, plus an MCP server over both | `wiki/` |
+
+```powershell
+git clone https://github.com/vijaycinn/long-term-memory.git
+cd long-term-memory
+.\setup\install-memory.ps1      # DB + hooks + instruction block
+.\setup\install-wiki.ps1        # Obsidian vault + graph + MCP server
+```
+
+**The repo carries machinery, never memory.** A new machine needs the clone *and*
+a `memory.db` — restore one with `python core/memory_restore.py <backup.json>`,
+or start empty and let the hooks fill it.
+
+---
+
+## 🤖 Agent runbook — virgin environment
+
+**Read this if you are an agent setting this up and the only thing available is
+Copilot CLI, the Copilot app, or Scout.** Run the steps in order and stop at the
+first failure; each one prints what it did.
+
+### 0. Preconditions
+
+```powershell
+python --version      # 3.10+ required; standard library only, nothing to pip install
+git --version
+```
+
+If `python` is missing, stop and tell the user — nothing here works without it.
+No other dependency exists: no pip packages, no daemon, no service.
+
+### 1. Get the machinery
+
+```powershell
+git clone https://github.com/vijaycinn/long-term-memory.git
+cd long-term-memory
+```
+
+Private repo under the **`vijaycinn`** account. If `gh` is signed in as a
+different account — a `_microsoft` EMU account, for instance — the clone returns
+a confusing `Repository not found` rather than a permission error. Check with
+`gh auth status` and switch with `gh auth switch --user vijaycinn`.
+
+### 2. Install memory
+
+```powershell
+.\setup\install-memory.ps1
+```
+
+Creates `~/.copilot/memory.db`, **registers both session hooks** in
+`~/.copilot/settings.json`, exports the context bridge, and patches the
+workspace instruction file. Idempotent — safe to re-run.
+
+It preserves every hook and setting it did not write. If `settings.json` is not
+valid JSON it refuses to touch the file and says so; register the hooks by hand
+rather than letting it clobber the user's configuration.
+
+**Verify the hooks landed.** This is the step that decides whether memory
+persists at all — without it the module still loads and `Remember-This` still
+works, so the install *looks* correct and quietly remembers nothing:
+
+```powershell
+python -c "import json,pathlib;d=json.loads(pathlib.Path.home().joinpath('.copilot/settings.json').read_text());print([e.get('powershell') for k in ('sessionStart','sessionEnd') for e in d['hooks'][k] if 'ltm_' in str(e)])"
+```
+
+Expect two paths ending `hooks/ltm_session_start.py` and `hooks/ltm_session_end.py`.
+
+### 3. Bring memory across, if there is any
+
+Storage is deliberately **not** in the repo, so a clone alone gives you an empty
+brain. If the user has a backup:
+
+```powershell
+python core\memory_restore.py <backup.json>
+```
+
+If they do not, skip this — the hooks start filling `memory.db` from the next
+session. Take a backup once there is something worth keeping:
+
+```powershell
+python core\memory_export.py                 # restorable JSON
+python core\memory_export.py --portable      # flat, for a different agent harness
+```
+
+### 4. Install the wiki, the vault and the graph
+
+```powershell
+.\setup\install-wiki.ps1
+```
+
+This writes `~/.copilot/wiki-config.json`, builds the Obsidian vault, and
+registers the `vault-mcp` MCP server in `~/.copilot/mcp-config.json`.
+
+**Yes — it sets up the Obsidian vault and the graph.** Every build writes:
+
+| Written | What it gives you |
+|---|---|
+| `.obsidian/graph.json` | Graph view with colour groups per folder — the map is readable on first open |
+| `.obsidian/app.json`, `appearance.json`, `bookmarks.json` | Working defaults, so nothing has to be configured by hand |
+| `00-Meta/Views/*.base` | Six **Obsidian Bases** views: Accounts, People, Topics, Stale sources, Synthesis, Everything |
+| `type`, `tags`, `origin`, `summary` on every note | What the Bases filter on — a note missing them is invisible to every saved view |
+| `index.md`, `log.md` | Catalogue and append-only chronology |
+
+Then in Obsidian: **Open folder as vault** → the path printed by the installer →
+`Ctrl/Cmd+G` for the graph.
+
+Restart the harness so the MCP server is picked up. In Scout, register it by
+hand — Scout has no plugin system, and reads `$scoutHome/m-mcp-servers.json`.
+
+### 5. Prove it works
+
+```powershell
+python wiki\test_bootstrap.py     # empty, memory-only and full modes, in a temp dir
+python wiki\test_vault_mcp.py     # drives the MCP server over stdio
+```
+
+`test_bootstrap.py` is the honest check: it stands the whole thing up from
+nothing in a temporary directory and asserts on the vault, the Bases, the
+frontmatter and the MCP surface. It touches nothing real.
+
+### 6. Report to the user
+
+Tell them: where `memory.db` is, whether it was restored or started empty,
+whether the hooks registered, the vault path, and that they must **restart the
+harness** before the MCP tools appear.
+
+### If something fails
+
+| Symptom | Cause | Do |
+|---|---|---|
+| `Repository not found` on clone | `gh` is signed in as the wrong account | `gh auth switch --user vijaycinn` |
+| Hooks absent from `settings.json` | File was unparseable, so the installer refused | Fix the JSON, re-run `install-memory.ps1` |
+| MCP tools do not appear | Harness not restarted, or org policy blocks MCP | Restart. The policy *MCP servers in Copilot* is **off by default** on Business/Enterprise seats |
+| Vault builds but has no views | `write_bases()` regressed | `python wiki\test_bootstrap.py` — it asserts on this |
+| Empty vault, no error | `memory.db` is empty | Expected on a fresh machine. Restore a backup, or let the hooks fill it |
+
+---
+
 This package gives Copilot CLI a shared SQLite-backed memory that is automatically injected into every session via hooks. The storage is centralized under:
 
 - **DB**: `C:\Users\<you>\.copilot\memory.db`
@@ -10,7 +158,7 @@ This package gives Copilot CLI a shared SQLite-backed memory that is automatical
 
 Think of `memory.db` as the knowledge store. At every session **end**, the `sessionEnd` hook extracts new knowledge and then refreshes the LTM block in `copilot-instructions.md`. When the **next** session starts, Copilot CLI reads that file before any hooks fire — so your identity, active topics, high-priority facts, and recent patterns are available from the very first turn. The `sessionStart` hook also refreshes the block as a backup, but the critical write happens at session end to avoid a timing race with file loading.
 
-> ### 🤖 Agents start here → **[CAPABILITIES.md](CAPABILITIES.md)**
+> ### 🤖 Changing this system? → **[CAPABILITIES.md](CAPABILITIES.md)**
 >
 > A single reference describing the **current state** of this system: the full op
 > and cmdlet surface, the data model, every defect already fixed (with root
@@ -63,8 +211,8 @@ any vault exists. Obsidian adds the graph, backlinks and Bases views on top.
 ### Bootstrap
 
 ```powershell
-.\install-memory.ps1        # the memory store (do this first)
-.\install-wiki.ps1          # the wiki layer
+.\setup\install-memory.ps1        # the memory store (do this first)
+.\setup\install-wiki.ps1          # the wiki layer
 ```
 
 `install-wiki.ps1` resolves paths, seeds `AGENTS.md`, builds the wiki from
@@ -72,8 +220,8 @@ whatever exists, registers the MCP server and verifies the result. It is
 idempotent. Options:
 
 ```powershell
-.\install-wiki.ps1 -Vault D:\notes\brain -Workspace C:\work\project
-.\install-wiki.ps1 -SkipMcp
+.\setup\install-wiki.ps1 -Vault D:\notes\brain -Workspace C:\work\project
+.\setup\install-wiki.ps1 -SkipMcp
 ```
 
 ### Three modes, decided by what exists on disk
@@ -281,46 +429,69 @@ needed day to day. Three properties worth knowing:
 
 ---
 
-## Files
+## Layout
+
+Organised by function. Everything is standard-library Python and PowerShell —
+nothing is installed as a package, so cross-folder imports put the sibling
+directories on `sys.path` explicitly.
+
+```
+memory.ps1            the entry point you dot-source — Add-Fact, Search-Memory,
+                      Remember-This, Matrix-Load, Backup-Memory, Sync-Vault
+CAPABILITIES.md       agent reference: op surface, invariants, fixed defects
+setup/                everything that stands the system up
+core/                 the storage engine
+hooks/                session lifecycle — this is what makes capture automatic
+ops/                  maintenance, reporting, continuity
+wiki/                 the vault, the graph and the MCP server
+tests/                the suite
+```
+
+### `setup/`
 
 | File | Purpose |
 |------|---------|
-| `init-memory.sql` | Initializes the SQLite schema and FTS tables |
-| `ltm_session_start.py` | **sessionStart hook** — reads `memory.db` and merges LTM context into `copilot-instructions.md` |
-| `ltm_session_end.py` | **sessionEnd hook** — captures session patterns, extracts facts, and refreshes the LTM block in `copilot-instructions.md` for the next session |
-| `ltm_lint.py` | Validates memory DB integrity and flags stale or orphaned data |
-| `ltm_wiki_export.py` | Exports memory topics/facts as a wiki-friendly markdown tree |
-| `memory_driver.py` | Python backend that reads JSON ops from stdin and writes JSON results |
-| `memory.ps1` | PowerShell module with helper functions such as `Add-Fact`, `Search-Memory`, and `Remember-This` |
-| `install-memory.ps1` | Bootstrap script to initialize memory and wire startup instructions into agents |
-| `memory_export.py` | Exports `memory.db` to a portable JSON backup |
-| `memory_restore.py` | Restores a backup and regenerates `memory-context.md` |
-| `seed_memory.py` | Seeds example data for testing |
+| `install-memory.ps1` | DB, **session-hook registration**, context bridge, instruction block. Idempotent |
+| `install-wiki.ps1` | Wiki config, vault build, MCP registration, verification |
+| `init-memory.sql` | SQLite schema and FTS tables |
 | `memory-health.bat` | Quick smoke test for the whole system |
-| `test_session_start.py` | Tests for the sessionStart hook |
-| `test_session_end.py` | Tests for the sessionEnd hook |
-| `test_wiki_export.py` | Tests for wiki export |
-| `test_lint.py` | Tests for the lint command |
-| `test_memory_driver.py` | Tests for the driver: FTS sanitizing, recency, export fairness, identity, migration |
-| `ltm_bench.py` | Scale benchmark — builds synthetic databases and times the hot paths |
-| `ltm_maintain.py` | Retention and compaction: archive stale topics, prune retired facts, dedupe, VACUUM |
-| `ltm_backup.py` | Business continuity: verified snapshots, rotation, status, restore |
-| `test_ltm_ops.py` | Tests for retention and continuity, including a real destroy-and-restore drill |
-| `test_vault_sync.py` | Tests for the wiki bridge — lock, opt-out, marker lifecycle, incremental scoping |
-| `install-wiki.ps1` | Bootstrap the wiki layer: config, vault skeleton, build, MCP registration, verification |
-| `wiki/` | The knowledge-wiki layer (see [The knowledge wiki](#the-knowledge-wiki)) |
-| `CAPABILITIES.md` | **Agent reference** — current state, fixed defects, invariants, extension guide |
+| `seed_memory.py` | Example data for testing (untracked) |
 
-### Inside `wiki/`
+### `core/`
 
 | File | Purpose |
 |------|---------|
-| `config.py` | Path and mode resolution — env var → `wiki-config.json` → default |
+| `memory_driver.py` | Reads JSON ops on stdin, writes JSON results. Everything else goes through it |
+| `memory_export.py` | Portable JSON backup; `--portable` for a different agent harness |
+| `memory_restore.py` | Restores a backup and regenerates `memory-context.md` |
+
+### `hooks/`
+
+| File | Purpose |
+|------|---------|
+| `ltm_session_start.py` | Reads `memory.db`, merges the LTM block into `copilot-instructions.md` |
+| `ltm_session_end.py` | Captures the session, extracts facts, refreshes the block, syncs the vault |
+
+### `ops/`
+
+| File | Purpose |
+|------|---------|
+| `ltm_backup.py` | Verified snapshots, rotation, status, restore |
+| `ltm_maintain.py` | Retention and compaction — archive, prune, dedupe, VACUUM |
+| `ltm_lint.py` | DB integrity; flags stale or orphaned data |
+| `ltm_wiki_export.py` | Exports topics and facts as a markdown tree |
+| `ltm_bench.py` | Scale benchmark over synthetic databases |
+
+### `wiki/`
+
+| File | Purpose |
+|------|---------|
+| `config.py` | Path and mode resolution — argument → env var → `wiki-config.json` → default |
 | `vaultlib.py` | Folder plan, classification, scanning, DB loading, note buffering and flush |
 | `notes.py` | Note generation — entities, topics, learnings, imports, sessions, work log |
-| `build.py` | Entry point — builds notes, maps of content, Obsidian config |
+| `build.py` | Entry point — notes, maps of content, **Obsidian config and graph** |
 | `navfiles.py` | `index.md` catalogue and `log.md` append-only chronology |
-| `bases.py` | Obsidian **Bases** views generated from note frontmatter |
+| `bases.py` | **Obsidian Bases** views generated from note frontmatter |
 | `sync.py` | Marker, lock and throttled rebuild — what `Sync-Vault` calls |
 | `wiki.py` | Query CLI — `search`, `file-answer`, `log`, `recent` |
 | `vault_mcp.py` | **MCP server** — `memory_search` (FTS5) plus the vault tools |
@@ -331,12 +502,17 @@ needed day to day. Three properties worth knowing:
 | `test_bootstrap.py` | **Virgin-setup proof** — empty, memory-only and full modes end to end |
 | `test_vault_mcp.py` | Drives the MCP server over stdio as the harness does |
 
+### `tests/`
+
+`test_memory_driver.py`, `test_session_start.py`, `test_session_end.py`,
+`test_lint.py`, `test_ltm_ops.py`, `test_wiki_export.py`, `test_vault_sync.py`.
+
 Run everything:
 
 ```powershell
 Set-Location .\long-term-memory
 $env:PYTHONIOENCODING = "utf-8"
-python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
+python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -t tests
 
 # the wiki layer has two standalone harnesses
 python wiki\test_bootstrap.py    # bootstraps into a temp dir; touches nothing real
@@ -400,7 +576,7 @@ Export-MemoryContext -TopicLimit 6 -PerTopicFacts 6 -MaxFacts 45
 run in a session. Numbers from this machine, median of 5 runs:
 
 ```powershell
-python ltm_bench.py --sizes 1000,10000,50000,100000
+python ops\ltm_bench.py --sizes 1000,10000,50000,100000
 ```
 
 | facts | topics | DB | `export_context` (session start) | search (selective) | search (worst case) | `add_fact` |
@@ -557,8 +733,8 @@ that has never been restored is a hypothesis, not a guarantee.
 ```powershell
 git clone <your-repo-url>
 Set-Location .\long-term-memory
-.\install-memory.ps1 -IncludeInstalledPluginAgents -IncludeMarketplaceCacheAgents
-.\install-wiki.ps1                      # optional: the knowledge wiki layer
+.\setup\install-memory.ps1 -IncludeInstalledPluginAgents -IncludeMarketplaceCacheAgents
+.\setup\install-wiki.ps1                      # optional: the knowledge wiki layer
 ```
 
 > **Cloning a private copy with more than one GitHub account signed in.** `gh`
@@ -661,11 +837,11 @@ Use **both** of these patterns:
 2. **Agent-specific**: add the same block to custom `.agent.md` files
 3. **Plugin / marketplace agents**: patch the `.agent.md` files under `.copilot\installed-plugins\` and `.copilot\marketplace-cache\`
 
-`install-memory.ps1` automates both for you.
+`setup\install-memory.ps1` automates both for you.
 
 This is why the memory becomes shared across agents instead of feeling tied to one persona like `vijay-agent`.
 
-> **Note:** plugin or marketplace updates can overwrite their `.agent.md` files. If that happens, just rerun `.\install-memory.ps1 -IncludeInstalledPluginAgents -IncludeMarketplaceCacheAgents`.
+> **Note:** plugin or marketplace updates can overwrite their `.agent.md` files. If that happens, just rerun `.\setup\install-memory.ps1 -IncludeInstalledPluginAgents -IncludeMarketplaceCacheAgents`.
 
 ---
 
@@ -718,7 +894,7 @@ Export-MemoryContext
 
 ```powershell
 Set-Location <cloned-repo>\long-term-memory
-.\install-memory.ps1
+.\setup\install-memory.ps1
 ```
 
 ### Option B — export and restore JSON
@@ -726,14 +902,14 @@ Set-Location <cloned-repo>\long-term-memory
 On the old machine:
 
 ```powershell
-python .\memory_export.py
+python .\core\memory_export.py
 ```
 
 On the new machine:
 
 ```powershell
-python .\memory_restore.py .\memory-backup-YYYYMMDD-HHMMSS.json
-.\install-memory.ps1
+python .\core\memory_restore.py .\memory-backup-YYYYMMDD-HHMMSS.json
+.\setup\install-memory.ps1
 ```
 
 Result: your new agent session opens with your identity, priorities, and key facts already loaded — the **"I know Kung Fu"** moment.

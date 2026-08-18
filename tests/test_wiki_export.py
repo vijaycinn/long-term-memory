@@ -1,3 +1,11 @@
+# Repository is organised by function; nothing is installed as a package, so the
+# sibling folders holding the modules under test go on the path explicitly.
+import os as _os, sys as _sys
+_REPO = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _sib in ("core", "hooks", "ops", "wiki"):
+    _p = _os.path.join(_REPO, _sib)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 #!/usr/bin/env python3
 """
 test_wiki_export.py — Tests for ltm_wiki_export.py
@@ -16,7 +24,7 @@ import unittest
 from ltm_wiki_export import export_wiki
 
 
-SCHEMA_SQL = os.path.join(os.path.dirname(__file__), "init-memory.sql")
+SCHEMA_SQL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "setup", "init-memory.sql")
 
 
 def create_test_db(db_path):

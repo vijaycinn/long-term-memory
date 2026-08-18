@@ -16,7 +16,7 @@ import sqlite3
 import sys
 
 DEFAULT_DB = os.path.join(os.environ["USERPROFILE"], ".copilot", "memory.db")
-INIT_SQL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "init-memory.sql")
+INIT_SQL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "setup", "init-memory.sql")
 DRIVER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "memory_driver.py")
 
 

@@ -1,5 +1,5 @@
 param(
-    [string]$WorkspaceRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$WorkspaceRoot = (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)),
     [switch]$IncludeInstalledPluginAgents,
     [switch]$IncludeMarketplaceCacheAgents,
     [switch]$SeedExampleData
@@ -8,7 +8,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $script:ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$script:MemoryModule = Join-Path $script:ScriptRoot "memory.ps1"
+$script:RepoRoot     = Split-Path -Parent $script:ScriptRoot
+$script:MemoryModule = Join-Path $script:RepoRoot "memory.ps1"
 $script:InitSql = Join-Path $script:ScriptRoot "init-memory.sql"
 $script:SeedScript = Join-Path $script:ScriptRoot "seed_memory.py"
 $script:MemoryDb = Join-Path $env:USERPROFILE ".copilot\memory.db"
@@ -121,9 +122,67 @@ function Ensure-AgentFiles {
     }
 }
 
+function Ensure-SessionHooks {
+    <#
+        Registers the sessionStart / sessionEnd hooks in ~/.copilot/settings.json.
+
+        This is the step that decides whether memory actually persists. Without
+        it the module still loads and Remember-This still works, but nothing
+        captures a session automatically - so a virgin machine looks correctly
+        installed and quietly remembers nothing. It was previously done by hand,
+        which is exactly why it is here now.
+
+        Idempotent: replaces this repo's own entries and leaves every other hook
+        alone. Python does the edit because settings.json holds hook commands
+        that PowerShell's JSON round-trip would reformat.
+    #>
+    param([Parameter(Mandatory)][string]$HooksDir)
+
+    $settings = Join-Path $env:USERPROFILE ".copilot\settings.json"
+    $py = @"
+import json, os, pathlib, sys
+
+settings = pathlib.Path(r'$settings')
+hooks_dir = pathlib.Path(r'$HooksDir')
+
+data = {}
+if settings.is_file():
+    try:
+        data = json.loads(settings.read_text(encoding='utf-8')) or {}
+    except json.JSONDecodeError:
+        # Never overwrite a file we cannot parse - a malformed settings.json
+        # that gets clobbered takes every other hook and preference with it.
+        print('SKIP settings.json is not valid JSON; register the hooks by hand')
+        sys.exit(0)
+
+hooks = data.setdefault('hooks', {})
+changed = []
+for event, script in (('sessionStart', 'ltm_session_start.py'),
+                      ('sessionEnd', 'ltm_session_end.py')):
+    cmd = 'python ' + (hooks_dir / script).as_posix()
+    entries = [e for e in hooks.get(event, [])
+               if script not in json.dumps(e)]          # drop our old entry
+    entries.insert(0, {'type': 'command', 'bash': cmd,
+                       'powershell': cmd, 'timeoutSec': 10000})
+    if hooks.get(event) != entries:
+        hooks[event] = entries
+        changed.append(event)
+
+if changed:
+    settings.parent.mkdir(parents=True, exist_ok=True)
+    settings.write_text(json.dumps(data, indent=2), encoding='utf-8')
+    print('OK registered ' + ', '.join(changed))
+else:
+    print('OK hooks already registered')
+"@
+    $result = python -c $py
+    Write-Host $result
+}
+
 Write-Host "== Copilot Long-Term Memory Bootstrap ==" -ForegroundColor Cyan
 Ensure-Python
 Ensure-MemoryDb
+Ensure-SessionHooks -HooksDir (Join-Path $script:RepoRoot "hooks")
 
 if ($SeedExampleData) {
     if (Test-Path $script:SeedScript) {

@@ -39,7 +39,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$WikiDir = Join-Path $PSScriptRoot 'wiki'
+$WikiDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'wiki'
 $CopilotHome = if ($env:COPILOT_HOME) { $env:COPILOT_HOME } else { Join-Path $HOME '.copilot' }
 
 function Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }

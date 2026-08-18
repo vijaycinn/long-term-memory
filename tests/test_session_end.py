@@ -1,3 +1,11 @@
+# Repository is organised by function; nothing is installed as a package, so the
+# sibling folders holding the modules under test go on the path explicitly.
+import os as _os, sys as _sys
+_REPO = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _sib in ("core", "hooks", "ops", "wiki"):
+    _p = _os.path.join(_REPO, _sib)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)
 #!/usr/bin/env python3
 """Tests for ltm_session_end.py — uses in-memory and temp DBs to avoid touching real data."""
 
@@ -20,7 +28,7 @@ from ltm_session_end import (
     touch_relevant_topics,
 )
 
-INIT_SQL = (Path(__file__).parent / "init-memory.sql").read_text(encoding="utf-8")
+INIT_SQL = (Path(__file__).resolve().parent.parent / "setup" / "init-memory.sql").read_text(encoding="utf-8")
 
 
 def _make_store_db(path: str, sessions: list[dict], turns: list[dict]) -> None:

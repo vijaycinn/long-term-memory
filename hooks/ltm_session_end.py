@@ -8,6 +8,17 @@ from pathlib import Path
 
 DEFAULT_DB = os.path.join(os.environ.get("USERPROFILE", str(Path.home())), ".copilot", "memory.db")
 
+# The repository is organised by function - core/ holds the storage engine,
+# ops/ the maintenance scripts, hooks/ this file. Nothing is installed as a
+# package, so the sibling folders have to go on the path explicitly. Doing it
+# once here rather than at each call site means a new cross-folder import does
+# not have to remember to repeat it.
+_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _sib in ("core", "ops", "hooks", "wiki"):
+    _p = os.path.join(_REPO, _sib)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 def get_conn(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON"); conn.execute("PRAGMA journal_mode = WAL")
@@ -234,8 +245,6 @@ def sync_agent_memory(hook_input, since_hours=48):
     must never break session end.
     """
     try:
-        _this_dir = os.path.dirname(os.path.abspath(__file__))
-        sys.path.insert(0, _this_dir)
         import memory_driver
         return memory_driver.sync_agent_memory({
             "db_path": hook_input.get("memory_db") or DEFAULT_DB,
@@ -248,8 +257,6 @@ def sync_agent_memory(hook_input, since_hours=48):
 def refresh_ltm_instructions(hook_input):
     """Re-generate the LTM block in copilot-instructions.md so the NEXT session loads it."""
     try:
-        _this_dir = os.path.dirname(os.path.abspath(__file__))
-        sys.path.insert(0, _this_dir)
         from ltm_session_start import generate_instructions
         generate_instructions(hook_input)
     except Exception:
@@ -265,8 +272,6 @@ def auto_backup(hook_input, interval_hours=12):
     the hook.
     """
     try:
-        _this_dir = os.path.dirname(os.path.abspath(__file__))
-        sys.path.insert(0, _this_dir)
         import ltm_backup
 
         payload = {}

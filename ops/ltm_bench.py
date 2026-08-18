@@ -1,4 +1,12 @@
-#!/usr/bin/env python3
+
+# Repository is organised by function; nothing is installed as a package, so the
+# sibling folders holding the modules under test go on the path explicitly.
+import os as _os, sys as _sys
+_REPO = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+for _sib in ("core", "hooks", "ops", "wiki"):
+    _p = _os.path.join(_REPO, _sib)
+    if _p not in _sys.path:
+        _sys.path.insert(0, _p)#!/usr/bin/env python3
 """
 ltm_bench.py — Scale benchmark for the long-term memory store.
 
@@ -32,7 +40,7 @@ import time
 
 import memory_driver as md
 
-SCHEMA_SQL = os.path.join(os.path.dirname(__file__), "init-memory.sql")
+SCHEMA_SQL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "setup", "init-memory.sql")
 
 WORDS = (
     "foundry anthropic databases frontier azure copilot github territory quota "
