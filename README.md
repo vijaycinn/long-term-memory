@@ -1,6 +1,8 @@
-# Long-Term Memory for Copilot CLI / VS Code
+# Long-Term Memory for Copilot CLI, the Copilot app and Scout
 
-Portable, persistent memory for your agents — **no daemon required** and **portable to a new machine**.
+Persistent, portable memory for your agents — a SQLite store, automatic session
+capture, and an Obsidian vault with a live graph on top. **No daemon, no pip
+install, and it moves to a new machine.**
 
 ---
 
@@ -19,11 +21,25 @@ git clone https://github.com/vijaycinn/long-term-memory.git
 cd long-term-memory
 .\setup\install-memory.ps1      # DB + hooks + instruction block
 .\setup\install-wiki.ps1        # Obsidian vault + graph + MCP server
+.\setup\install-scout.ps1       # same memory inside Microsoft Scout
 ```
 
 **The repo carries machinery, never memory.** A new machine needs the clone *and*
 a `memory.db` — restore one with `python core/memory_restore.py <backup.json>`,
 or start empty and let the hooks fill it.
+
+### Where it works
+
+| | Copilot CLI / app | Scout |
+|---|---|---|
+| Read memory via MCP | Yes | Yes, after `install-scout.ps1` + refresh |
+| Write with `Remember-This` | Yes | Yes — Scout has a shell |
+| **Automatic session capture** | **Yes** | **No — Scout fires no session hooks** |
+| Skills | `~/.copilot/skills/` | `$scoutHome/m-skills/` |
+
+Scout is a **read-first** surface. Everything you have recorded is searchable
+there; nothing new is captured for you. Keep a Copilot CLI session in play if
+you want capture to stay automatic.
 
 ---
 
@@ -118,8 +134,34 @@ registers the `vault-mcp` MCP server in `~/.copilot/mcp-config.json`.
 Then in Obsidian: **Open folder as vault** → the path printed by the installer →
 `Ctrl/Cmd+G` for the graph.
 
-Restart the harness so the MCP server is picked up. In Scout, register it by
-hand — Scout has no plugin system, and reads `$scoutHome/m-mcp-servers.json`.
+Restart the harness so the MCP server is picked up.
+
+### 4b. If the user is on Scout
+
+Scout has **no plugin system**, so everything is done from the filesystem:
+
+```powershell
+.\setup\install-scout.ps1
+```
+
+This resolves `$scoutHome` (first of `~/.scout`, `~/.scout-dev`,
+`~/.scout-cloud`, `~/.copilot`), registers the `vault` server in
+`m-mcp-servers.json`, and junctions the skill into `m-skills/`.
+
+It **parses `m-mcp-servers.json` before writing it.** A single malformed byte
+makes Scout load *zero* servers and silently wipe the user's list, so if the
+file does not parse the script backs it up and stops rather than guessing.
+
+Then hand back the one UI-only step: **Extensions → MCP Servers → Refresh**.
+
+**Tell the user the limitation plainly.** Scout fires no session hooks — the
+`sessionStart` / `sessionEnd` entries live in `~/.copilot/settings.json`, which
+belongs to Copilot CLI, and Scout has no equivalent. So in Scout:
+
+- reading memory works fully;
+- `Remember-This` works, because Scout has a shell;
+- **nothing captures a session automatically.** If they rely on that, they
+  should keep working in Copilot CLI, or record deliberately.
 
 ### 5. Prove it works
 
@@ -443,6 +485,7 @@ setup/                everything that stands the system up
 core/                 the storage engine
 hooks/                session lifecycle — this is what makes capture automatic
 ops/                  maintenance, reporting, continuity
+skills/               the agent-facing skill, for Copilot CLI and Scout
 wiki/                 the vault, the graph and the MCP server
 tests/                the suite
 ```
@@ -453,9 +496,16 @@ tests/                the suite
 |------|---------|
 | `install-memory.ps1` | DB, **session-hook registration**, context bridge, instruction block. Idempotent |
 | `install-wiki.ps1` | Wiki config, vault build, MCP registration, verification |
+| `install-scout.ps1` | **Scout**: registers the MCP server and junctions the skill. Parses before writing, because a malformed `m-mcp-servers.json` makes Scout load zero servers |
 | `init-memory.sql` | SQLite schema and FTS tables |
 | `memory-health.bat` | Quick smoke test for the whole system |
 | `seed_memory.py` | Example data for testing (untracked) |
+
+### `skills/`
+
+| File | Purpose |
+|------|---------|
+| `long-term-memory/SKILL.md` | Teaches an agent the read-then-write loop, and the Copilot-vs-Scout differences. Link into `~/.copilot/skills/` or `$scoutHome/m-skills/` |
 
 ### `core/`
 
