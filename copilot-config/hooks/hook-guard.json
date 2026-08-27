@@ -21,6 +21,13 @@
         "bash": "pwsh -NoProfile -File ~/.copilot/mcp-oauth-prune.ps1",
         "powershell": "pwsh -NoProfile -File C:/Users/vcinnakonda/.copilot/mcp-oauth-prune.ps1",
         "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "comment": "Re-apply disabled plugin extensions. A plugin update restores extension.mjs and silently re-enables the per-session node fork, so this is enforced every session rather than renamed once. Renames only, never deletes.",
+        "bash": "python C:/workspace/agency/long-term-memory/hooks/plugin_extensions.py",
+        "powershell": "python C:/workspace/agency/long-term-memory/hooks/plugin_extensions.py",
+        "timeoutSec": 20
       }
     ]
   },

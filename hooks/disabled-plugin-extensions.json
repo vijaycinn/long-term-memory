@@ -1,0 +1,15 @@
+{
+  "comment": "Plugin-contributed Copilot extensions to keep disabled. Each forks a node process per session. Re-applied at sessionEnd because a plugin update restores the original entry point. Re-enable with: python plugin_extensions.py --enable msx-mcp/earnings-dashboard (then remove the entry here, or it will be disabled again).",
+  "disabled": [
+    {
+      "plugin": "msx-mcp",
+      "extension": "earnings-dashboard",
+      "note": "Backs get_earnings format=dashboard. Re-enable if you want the MINT/DLTR drill-down canvas."
+    },
+    {
+      "plugin": "msx-mcp",
+      "extension": "hok-dashboard",
+      "note": "Never registered a canvas in observed sessions."
+    }
+  ]
+}
