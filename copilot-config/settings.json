@@ -1,0 +1,187 @@
+{
+  "allowedUrls": [
+    "https://github.com",
+    "https://docs.github.com",
+    "https://devblogs.microsoft.com",
+    "https://engage.cloud.microsoft",
+    "https://microsoft.sharepoint.com",
+    "https://learn.microsoft.com",
+    "https://graph.microsoft.com",
+    "https://aka.ms",
+    "https://www.cityofsacramento.gov",
+    "https://deepwiki.com",
+    "https://raw.githubusercontent.com",
+    "https://playwright.dev",
+    "https://ghappsaicalllist.z20.web.core.windows.net",
+    "https://ambitious-ocean-07352470f.7.azurestaticapps.net",
+    "https://planetarycomputer.microsoft.com",
+    "https://geopandas.org",
+    "https://pro.arcgis.com",
+    "https://postgis.net",
+    "https://data.linncountyiowa.gov",
+    "https://geodata.iowa.gov",
+    "https://minedbuildings.z5.web.core.windows.net",
+    "https://azure.microsoft.com",
+    "https://techcommunity.microsoft.com",
+    "https://ohmyposh.dev",
+    "http://127.0.0.1:59103",
+    "http://127.0.0.1:59108",
+    "https://community.sap.com",
+    "https://news.microsoft.com",
+    "https://blogs.microsoft.com",
+    "https://microsoft.github.io",
+    "https://news.sap.com",
+    "https://github.blog",
+    "https://web.archive.org",
+    "https://code.visualstudio.com",
+    "https://copilot.github.com",
+    "https://www.microsoft.com",
+    "https://platform.openai.com",
+    "https://openai.com",
+    "https://webiq.microsoft.ai",
+    "http://127.0.0.1:9876",
+    "https://api.githubcopilot.com",
+    "https://registry.npmjs.org",
+    "https://ais-eastus-poc.openai.azure.com",
+    "https://www.githubstatus.com"
+  ],
+  "colorMode": "default",
+  "companyAnnouncements": [
+    "GPT-5.6 Sol, Terra, and Luna are now available in Copilot CLI. Try them from the model picker.",
+    "Need help with Agency? Run `agency support` or join the support community: https://aka.ms/agency/support"
+  ],
+  "default_mode": "autopilot",
+  "disabledSkills": [
+    "work-tracker",
+    "azure-aigateway",
+    "use-ai-gateway"
+  ],
+  "enabledPlugins": {
+    "ai-api-getting-started@agency-playground": true,
+    "ai-starter-pack@agency-playground": true,
+    "connect-writer@agency-playground": true,
+    "debug-tools@agency": true,
+    "deep-wiki@agency": true,
+    "dev-team@agency-playground": true,
+    "diagrams@agency": true,
+    "doc-authoring@agency-playground": true,
+    "microsoft-apps@agency-playground": true,
+    "msx-mcp@msx-mcp": true,
+    "msx-tools@agency": true,
+    "peer-reviewer@agency-playground": true,
+    "power-apps@agency-playground": true,
+    "prep-meeting@agency-playground": true,
+    "spark@copilot-plugins": true,
+    "triage-team@agency": true,
+    "usage-analyzer@agency": true,
+    "workiq-communications@agency": false,
+    "workiq-communications@agency-playground": true,
+    "workiq@agency-playground": false,
+    "workiq@copilot-plugins": true
+  },
+  "experimental": true,
+  "extraKnownMarketplaces": {
+    "agency": {
+      "source": {
+        "source": "github",
+        "repo": "agency-microsoft/.github-private"
+      }
+    },
+    "agency-playground": {
+      "source": {
+        "source": "github",
+        "repo": "agency-microsoft/playground"
+      }
+    },
+    "msx-mcp": {
+      "source": {
+        "source": "github",
+        "repo": "mcaps-microsoft/MSX-MCP"
+      }
+    }
+  },
+  "feature_flags": {
+    "enabled": [
+      "STATUS_LINE"
+    ]
+  },
+  "footer": {
+    "showModelEffort": true,
+    "showDirectory": true,
+    "showBranch": true,
+    "showContextWindow": true,
+    "showQuota": true,
+    "showAiUsed": true,
+    "showAgent": true,
+    "showCodeChanges": false,
+    "showUsername": false,
+    "showSandbox": true,
+    "showYolo": false,
+    "showCustom": true
+  },
+  "hooks": {
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "python C:/workspace/agency/long-term-memory/hooks/ltm_session_end.py",
+        "powershell": "python C:/workspace/agency/long-term-memory/hooks/ltm_session_end.py",
+        "timeoutSec": 10000
+      }
+    ],
+    "sessionStart": []
+  },
+  "logLevel": "all",
+  "renderMarkdown": true,
+  "skillDirectories": [
+    "C:\\workspace\\agency\\anthropic\\skills\\skills\\skill-creator",
+    "C:\\workspace\\agency\\anthropic\\skills\\skills\\pptx"
+  ],
+  "statusLine": {
+    "type": "command",
+    "command": "C:\\Users\\vcinnakonda\\.copilot\\statusline.cmd",
+    "padding": 1
+  },
+  "subagents": {
+    "agents": {
+      "explore": {
+        "model": "mai-code-1.1-flash",
+        "effortLevel": "low",
+        "contextTier": "default"
+      },
+      "task": {
+        "model": "gpt-5.6-luna",
+        "effortLevel": "low",
+        "contextTier": "default"
+      },
+      "research": {
+        "model": "grok-4.6",
+        "effortLevel": "high",
+        "contextTier": "default"
+      },
+      "code-review": {
+        "model": "gpt-5.3-codex",
+        "effortLevel": "medium",
+        "contextTier": "default"
+      },
+      "security-review": {
+        "model": "claude-sonnet-5",
+        "effortLevel": "medium",
+        "contextTier": "default"
+      },
+      "general-purpose": {
+        "model": "gpt-5.6-terra",
+        "effortLevel": "medium",
+        "contextTier": "default"
+      }
+    }
+  },
+  "theme": "default",
+  "voice": {
+    "enabled": true,
+    "selectedModel": "nemotron-speech-streaming-en-0.6b-generic-cpu:3"
+  },
+  "effortLevel": "high",
+  "contextTier": "default",
+  "model": "auto",
+  "showReasoning": true
+}

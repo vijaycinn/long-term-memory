@@ -1,0 +1,540 @@
+{
+  "locations": {
+    "C:\\workspace\\repo": {
+      "tool_approvals": [
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Set-Location"
+          ]
+        }
+      ]
+    },
+    "C:\\workspace\\install": {
+      "tool_approvals": [
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "ask_work_iq"
+        }
+      ]
+    },
+    "C:\\workspace\\account\\cjn-dakota": {
+      "tool_approvals": [
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "ask_work_iq"
+        },
+        {
+          "kind": "write"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Remove-Item"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "git add"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "git commit"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "git push"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "npx tsx"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "pnpm build"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "npm run"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "git add",
+            "git commit"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "git submodule"
+          ]
+        }
+      ]
+    },
+    "C:\\workspace\\docs\\AI_COE": {
+      "tool_approvals": [
+        {
+          "kind": "write"
+        }
+      ]
+    },
+    "C:\\Users\\vcinnakonda": {
+      "tool_approvals": [
+        {
+          "kind": "write"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "*"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "*",
+          "toolName": "*"
+        }
+      ]
+    },
+    "C:\\workspace\\agency": {
+      "tool_approvals": [
+        {
+          "kind": "write"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "*"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "*",
+          "toolName": "*"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "WorkIQ-Mail-MCP-Server",
+          "toolName": "SearchMessagesQueryParameters"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "calendar",
+          "toolName": "ListCalendarView"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "npx skills"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "copilot"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "pwsh"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "ConvertFrom-Json",
+            "ConvertTo-Json"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx-mcp",
+          "toolName": "search_milestone_by_number"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "ask_work_iq"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx-mcp",
+          "toolName": "create_task_activity"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx-mcp",
+          "toolName": "get_account_opportunities"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx-mcp",
+          "toolName": "get_opportunity_details"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx-mcp",
+          "toolName": "get_milestone_details"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx-mcp",
+          "toolName": "open_msx_record"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "mail",
+          "toolName": "SearchMessagesQueryParameters"
+        },
+        {
+          "kind": "extension-permission-access",
+          "extensionName": "user:sequential-thinking"
+        },
+        {
+          "kind": "extension-permission-access",
+          "extensionName": "user:inbox-sentinel"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "az"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "gh auth"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "netstat",
+            "findstr"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Invoke-WebRequest"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Get-ScheduledTask",
+            "Get-ScheduledTaskInfo"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Get-ScheduledTaskPrincipal"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "gh extension"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Write-Host"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "gh copilot"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "playwright",
+          "toolName": "browser_navigate"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "playwright",
+          "toolName": "browser_click"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Remove-Item"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx",
+          "toolName": "get_account_opportunities"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx",
+          "toolName": "get_opportunity_details"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx",
+          "toolName": "get_milestones_for_opportunity"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx",
+          "toolName": "create_task_activity"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "mail",
+          "toolName": "GetMessage"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "mail",
+          "toolName": "GetAttachments"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx",
+          "toolName": "get_account_overview"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "msx",
+          "toolName": "get_my_hok_activities"
+        },
+        {
+          "kind": "memory"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "WebIQ-MCP",
+          "toolName": "web"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            ".\\Check-McpVersions.ps1"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "New-Item",
+            "Out-Null",
+            "Write-Output"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Copy-Item"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "WorkIQ-Mail-MCP-Server",
+          "toolName": "CreateDraftMessage"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "mail",
+          "toolName": "CreateDraftMessage"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "curl",
+            "python"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "curl.exe"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Get-NetTCPConnection"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "fetch"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "get_schema"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "create_entity"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "update_entity"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Resolve-DnsName"
+          ]
+        },
+        {
+          "kind": "extension-permission-access",
+          "extensionName": "plugin:msx-mcp:hok-dashboard"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "WebIQ-MCP",
+          "toolName": "browse"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "playwright",
+          "toolName": "browser_evaluate"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "playwright",
+          "toolName": "browser_close"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "azure",
+          "toolName": "pricing"
+        },
+        {
+          "kind": "mcp-sampling",
+          "serverName": "azure"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "node"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "vault",
+          "toolName": "vault_search"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "vault",
+          "toolName": "vault_read"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "vault",
+          "toolName": "vault_recent"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "workiq",
+          "toolName": "ask"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "pip show"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "uv"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "uvx"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "pip install"
+          ]
+        },
+        {
+          "kind": "extension-management",
+          "operation": "reload"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "vault",
+          "toolName": "vault_index"
+        },
+        {
+          "kind": "mcp",
+          "serverName": "vault",
+          "toolName": "memory_search"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Import-Module"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Matrix-Load"
+          ]
+        },
+        {
+          "kind": "mcp",
+          "serverName": "WorkIQ-Mail-MCP-Server",
+          "toolName": "ReplyAllWithFullThread"
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Remember-This"
+          ]
+        },
+        {
+          "kind": "commands",
+          "commandIdentifiers": [
+            "Add-Topic"
+          ]
+        }
+      ]
+    },
+    "C:\\workspace\\source\\cd-oai\\cd": {
+      "tool_approvals": [
+        {
+          "kind": "extension-permission-access",
+          "extensionName": "user:sequential-thinking"
+        }
+      ]
+    }
+  }
+}

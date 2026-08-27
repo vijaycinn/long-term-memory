@@ -1,0 +1,84 @@
+{
+  "mcpServers": {
+    "seismic-bridge": {
+      "tools": [
+        "*"
+      ],
+      "type": "stdio",
+      "command": "C:\\Program Files\\nodejs\\node.exe",
+      "args": [
+        "C:\\Users\\vcinnakonda\\AppData\\Local\\ClawpilotBridge\\mcp-server\\server.js"
+      ]
+    },
+    "MS-Learn": {
+      "tools": [
+        "*"
+      ],
+      "type": "http",
+      "url": "https://learn.microsoft.com/api/mcp"
+    },
+    "playwright": {
+      "tools": [
+        "*"
+      ],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.78",
+        "--browser",
+        "msedge",
+        "--caps",
+        "vision"
+      ]
+    },
+    "azure": {
+      "tools": [
+        "*"
+      ],
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@azure/mcp@latest",
+        "server",
+        "start"
+      ]
+    },
+    "github-mcp-server": {
+      "tools": [
+        "*"
+      ],
+      "type": "http",
+      "url": "https://api.githubcopilot.com/mcp/readonly",
+      "headers": {
+        "Authorization": "<REDACTED>"
+      }
+    },
+    "vault": {
+      "tools": [
+        "*"
+      ],
+      "type": "stdio",
+      "command": "python",
+      "args": [
+        "C:\\workspace\\agency\\long-term-memory\\wiki\\vault_mcp.py"
+      ]
+    },
+    "WebIQ-MCP": {
+      "tools": [
+        "*"
+      ],
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "C:\\Users\\vcinnakonda\\.copilot\\webiq-mcp-proxy.cjs"
+      ],
+      "env": {
+        "WEBIQ_API_KEY": "<REDACTED>"
+      },
+      "headers": {
+        "x-apikey": "<REDACTED>"
+      }
+    }
+  }
+}

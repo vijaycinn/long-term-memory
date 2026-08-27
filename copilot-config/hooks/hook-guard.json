@@ -7,6 +7,13 @@
         "bash": "python C:/workspace/agency/long-term-memory/hooks/prune_orphan_hooks.py",
         "powershell": "python C:/workspace/agency/long-term-memory/hooks/prune_orphan_hooks.py",
         "timeoutSec": 20
+      },
+      {
+        "type": "command",
+        "comment": "Retention sweep: extension logs older than 7d, session-state older than 60d. Leaves session-store.db alone. Fails open.",
+        "bash": "python C:/workspace/agency/long-term-memory/hooks/prune_copilot_state.py",
+        "powershell": "python C:/workspace/agency/long-term-memory/hooks/prune_copilot_state.py",
+        "timeoutSec": 60
       }
     ]
   },
