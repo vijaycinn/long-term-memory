@@ -14,6 +14,13 @@
         "bash": "python C:/workspace/agency/long-term-memory/hooks/prune_copilot_state.py",
         "powershell": "python C:/workspace/agency/long-term-memory/hooks/prune_copilot_state.py",
         "timeoutSec": 60
+      },
+      {
+        "type": "command",
+        "comment": "De-duplicate MCP OAuth cache entries. Was a sessionStart hook until 2026-08-27, when sessionStart was emptied for load time; moved here so the anti-thrash protection keeps running at zero startup cost.",
+        "bash": "pwsh -NoProfile -File ~/.copilot/mcp-oauth-prune.ps1",
+        "powershell": "pwsh -NoProfile -File C:/Users/vcinnakonda/.copilot/mcp-oauth-prune.ps1",
+        "timeoutSec": 30
       }
     ]
   },

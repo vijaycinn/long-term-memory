@@ -183,5 +183,8 @@
   "effortLevel": "high",
   "contextTier": "default",
   "model": "auto",
-  "showReasoning": true
+  "showReasoning": true,
+  "disabledMcpServers": [
+    "powerbi-remote"
+  ]
 }

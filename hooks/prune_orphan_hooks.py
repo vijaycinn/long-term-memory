@@ -79,8 +79,12 @@ LOOPBACK_RE = re.compile(r"https?://(?:127\.0\.0\.1|localhost|\[::1\]):(\d{1,5})
 # An absolute path, quoted or bare, up to the first quote or whitespace run that
 # cannot be part of a path. Windows paths routinely contain spaces, so quoted
 # forms are matched first and bare forms are only accepted without spaces.
-QUOTED_PATH_RE = re.compile(r"""['"]([A-Za-z]:[\\/][^'"]+|/[^'"]+)['"]""")
-BARE_PATH_RE = re.compile(r"(?<!['\"])([A-Za-z]:[\\/][^\s'\"]+|(?<![\w:])/[^\s'\"]+)")
+#
+# A `~`-relative path (`~/.copilot/x.ps1`) is deliberately NOT absolute: `~`
+# expands inside the shell that runs the hook, not here, so treating it as `/...`
+# would report every tilde path as missing.
+QUOTED_PATH_RE = re.compile(r"""['"]([A-Za-z]:[\\/][^'"]+|(?<!~)/[^'"]+)['"]""")
+BARE_PATH_RE = re.compile(r"(?<!['\"])([A-Za-z]:[\\/][^\s'\"]+|(?<![\w:~])/[^\s'\"]+)")
 
 
 def copilot_home() -> Path:
