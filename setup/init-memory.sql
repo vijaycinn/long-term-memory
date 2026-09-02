@@ -134,6 +134,39 @@ CREATE TABLE IF NOT EXISTS refs (
   UNIQUE(parent_id, parent_type, ref_type, ref_value)
 );
 
+-- ── ltm_session_log / ltm_patterns ────────────────────────────────────
+-- Written by hooks/ltm_session_end.py and read unconditionally by
+-- wiki/vaultlib.py (`select * from ltm_session_log` / `ltm_patterns`).
+--
+-- These lived ONLY in the session-end hook's own CREATE IF NOT EXISTS, so a
+-- fresh install that built the wiki before ever ending a session hit
+-- "no such table: ltm_session_log". wiki/test_bootstrap.py did not catch it
+-- because its fixture creates both tables itself, making the greenfield proof
+-- self-fulfilling. Definitions below are byte-compatible with the hook's, so
+-- its CREATE IF NOT EXISTS stays a harmless no-op.
+CREATE TABLE IF NOT EXISTS ltm_patterns (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id   TEXT NOT NULL,
+  pattern_type TEXT NOT NULL,
+  description  TEXT,
+  repository   TEXT,
+  cwd          TEXT,
+  created_at   TEXT DEFAULT (datetime('now')),
+  UNIQUE(session_id, pattern_type)
+);
+
+CREATE TABLE IF NOT EXISTS ltm_session_log (
+  session_id         TEXT PRIMARY KEY,
+  cwd                TEXT,
+  repository         TEXT,
+  summary            TEXT,
+  end_reason         TEXT,
+  facts_extracted    INTEGER DEFAULT 0,
+  entities_extracted INTEGER DEFAULT 0,
+  patterns_detected  TEXT,
+  processed_at       TEXT DEFAULT (datetime('now'))
+);
+
 -- ── memory_fts ────────────────────────────────────────────────────────
 -- Unified FTS5 table. content is the searchable text; row_id+table_name locate the source row.
 -- CRITICAL: row_id is only unique within a table_name bucket — never join on row_id alone.
