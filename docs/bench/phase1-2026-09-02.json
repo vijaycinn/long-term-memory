@@ -1,0 +1,142 @@
+{
+  "format": 1,
+  "measured_at_utc": "2026-09-02T16:55:49Z",
+  "latency_mode": "warm",
+  "recall_definition": "hit recall@5: at least one expected target in the first five",
+  "mrr_definition": "mean reciprocal rank of the first correct result",
+  "golden_queries": 27,
+  "paths": {
+    "lexical_v0": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.3704,
+        "mrr": 0.1333,
+        "p50_ms": 73.4056,
+        "p95_ms": 89.7314
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.6154,
+          "mrr": 0.2359,
+          "p50_ms": 73.5903,
+          "p95_ms": 91.594
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.6667,
+          "mrr": 0.1778,
+          "p50_ms": 73.5309,
+          "p95_ms": 77.8284
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 72.5457,
+          "p95_ms": 89.7314
+        }
+      }
+    },
+    "memory_v0": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.0,
+        "mrr": 0.0,
+        "p50_ms": 22.9289,
+        "p95_ms": 29.2856
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 23.378,
+          "p95_ms": 27.9176
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 21.7651,
+          "p95_ms": 33.9791
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 22.5173,
+          "p95_ms": 29.2856
+        }
+      }
+    },
+    "vault_current": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.3704,
+        "mrr": 0.1333,
+        "p50_ms": 140.1414,
+        "p95_ms": 164.3235
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.6154,
+          "mrr": 0.2359,
+          "p50_ms": 140.7829,
+          "p95_ms": 177.6819
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.6667,
+          "mrr": 0.1778,
+          "p50_ms": 137.8141,
+          "p95_ms": 140.7477
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 140.1414,
+          "p95_ms": 163.0291
+        }
+      }
+    },
+    "memory_current": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.0,
+        "mrr": 0.0,
+        "p50_ms": 30.656,
+        "p95_ms": 41.9713
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 32.0041,
+          "p95_ms": 37.9842
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 31.3157,
+          "p95_ms": 39.9614
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 30.5664,
+          "p95_ms": 43.561
+        }
+      }
+    }
+  }
+}

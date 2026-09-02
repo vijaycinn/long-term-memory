@@ -1,0 +1,32 @@
+{
+  "_comment": "expect_pages values are vault page stems. The harness resolves them with the same direct-path then case-insensitive-stem algorithm as wiki/vault_mcp.py:_resolve(). Queries were extracted and normalized from session-store user messages, with vault log/session pages used to confirm targets.",
+  "queries": [
+    {"id": "g01", "query": "what did we conclude about SAIF's OCR cost", "expect_pages": ["SAIF (TPID 20847298) — Foundry OCR options for the 65M-document OnBase backfill"], "expect_facts": [], "class": "local"},
+    {"id": "g02", "query": "why did document extraction burst traffic get rate limited", "expect_pages": ["SAIF 429 Analysis"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g03", "query": "which setting ignored the small language model swap", "expect_pages": ["Research SAIF CU — GET defaults Response Analysis + Chu Draft"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g04", "query": "what would it cost to digitize our historical insurance repository", "expect_pages": ["SAIF (TPID 20847298) — Foundry OCR options for the 65M-document OnBase backfill"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g05", "query": "SAIF 429 analysis", "expect_pages": ["SAIF 429 Analysis"], "expect_facts": [], "class": "local"},
+    {"id": "g06", "query": "SAIF Content Understanding PoC", "expect_pages": ["SAIF Content Understanding PoC — Implementation Guide"], "expect_facts": [], "class": "local"},
+    {"id": "g07", "query": "SAIF Databricks AWS migration", "expect_pages": ["Azure Databricks vs. Databricks on AWS — seller brief for SAIF (TPID 20847298)"], "expect_facts": [], "class": "local"},
+    {"id": "g08", "query": "City of Fort Worth AI Foundry architecture", "expect_pages": ["City of Fort Worth — Azure Subscription & AI Agent Architecture Recommendation"], "expect_facts": [], "class": "local"},
+    {"id": "g09", "query": "Fort Worth monthly cadence milestone", "expect_pages": ["City of Fort Worth"], "expect_facts": [], "class": "local"},
+    {"id": "g10", "query": "Portland GCC security engagement", "expect_pages": ["Topic - City of Portland - GCC AI and Security Engagement"], "expect_facts": [], "class": "local"},
+    {"id": "g11", "query": "County San Luis Obispo Dev Box", "expect_pages": ["County of San Luis Obispo"], "expect_facts": [], "class": "local"},
+    {"id": "g12", "query": "M365 GCC Fabric availability", "expect_pages": ["Microsoft Fabric"], "expect_facts": [], "class": "local"},
+    {"id": "g13", "query": "Copilot Agents GCC", "expect_pages": ["M365 Copilot Agents (Agent365)"], "expect_facts": [], "class": "local"},
+    {"id": "g14", "query": "Enghouse API Management OAuth gateway", "expect_pages": ["Azure API Management — MCP, OAuth & AI Gateway"], "expect_facts": [], "class": "local"},
+    {"id": "g15", "query": "APIM v2 tiers feature", "expect_pages": ["Azure API Management — v2 Tiers Feature Matrix"], "expect_facts": [], "class": "local"},
+    {"id": "g16", "query": "Linn County GIS Azure cost estimate", "expect_pages": ["Linn County GIS Analytics on Azure - Cost Estimate (Source-Cited)"], "expect_facts": [], "class": "local"},
+    {"id": "g17", "query": "how do I retain organizational knowledge in my assistant", "expect_pages": ["Vault Guide"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g18", "query": "why is the wiki behaving like find-in-page", "expect_pages": ["I built a knowledge graph and never traverse it - vault retrieval audit"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g19", "query": "what cheap adjustment lets related notes participate in lookup", "expect_pages": ["I built a knowledge graph and never traverse it - vault retrieval audit"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g20", "query": "what caused internal candidates to disappear after eleven days", "expect_pages": ["Microsoft internal application rejections - the 11-day screening pattern"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g21", "query": "how should I position a cloud data platform move for the insurer", "expect_pages": ["Azure Databricks vs. Databricks on AWS — seller brief for SAIF (TPID 20847298)"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g22", "query": "how do I publish an account insight to colleagues without sharing raw memory", "expect_pages": ["team-brain-publish — promote a card from your vault to the team"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g23", "query": "County San Luis Obispo Frontline", "expect_pages": ["Windows 365 Frontline"], "expect_facts": [], "class": "multihop"},
+    {"id": "g24", "query": "Fort Worth Foundry workflow retirement", "expect_pages": ["Foundry Workflows designer retires 1 December 2026, but the YAML survives"], "expect_facts": [], "class": "multihop"},
+    {"id": "g25", "query": "SAIF Databricks claims platform", "expect_pages": ["SAIF — The Integrated Claims Platform Argument"], "expect_facts": [], "class": "multihop"},
+    {"id": "g26", "query": "can I use a different foundation model with the document parser", "expect_pages": ["Content Understanding 2026 - talk track, cost model and the Mistral answer"], "expect_facts": [], "class": "paraphrase"},
+    {"id": "g27", "query": "how do I keep an analysis from vanishing when the chat ends", "expect_pages": ["How to use the vault - cheat sheet"], "expect_facts": [], "class": "paraphrase"}
+  ]
+}
