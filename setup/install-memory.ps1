@@ -187,7 +187,8 @@ function Install-HookGuard {
     $requiredScripts = @(
         (Join-Path $script:RepoRoot "hooks\prune_orphan_hooks.py"),
         (Join-Path $script:RepoRoot "hooks\prune_copilot_state.py"),
-        (Join-Path $script:RepoRoot "hooks\plugin_extensions.py")
+        (Join-Path $script:RepoRoot "hooks\plugin_extensions.py"),
+        (Join-Path $script:RepoRoot "hooks\prune_mcp_oauth.ps1")
     )
 
     if (-not (Test-Path $template)) {

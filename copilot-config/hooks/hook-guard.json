@@ -17,6 +17,13 @@
       },
       {
         "type": "command",
+        "comment": "Dedupe MCP OAuth cache entries. Duplicate metadata for one serverUrl causes cold-start auth thrash (observed on WorkIQ-Mail-MCP-Server, 2026-06-08). Keeps the freshest non-expired token per serverUrl and archives the rest; never touches tokens-only files, which are the primary cache format for several servers. Moves, never deletes. Fails open.",
+        "bash": "pwsh -NoProfile -File \"{{REPO_ROOT}}/hooks/prune_mcp_oauth.ps1\"",
+        "powershell": "pwsh -NoProfile -File \"{{REPO_ROOT}}/hooks/prune_mcp_oauth.ps1\"",
+        "timeoutSec": 20
+      },
+      {
+        "type": "command",
         "comment": "Re-apply disabled plugin extensions. A plugin update restores extension.mjs and silently re-enables the per-session node fork, so this is enforced every session rather than renamed once. Renames only, never deletes.",
         "bash": "python \"{{REPO_ROOT}}/hooks/plugin_extensions.py\"",
         "powershell": "python \"{{REPO_ROOT}}/hooks/plugin_extensions.py\"",
