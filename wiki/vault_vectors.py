@@ -52,12 +52,14 @@ import vault_embed
 CHUNK_CHARS = 1200
 CHUNK_OVERLAP = 200
 MIN_CHUNK_CHARS = 80          # below this a chunk is a heading fragment, not content
+CONTEXT_HEADER_MAX_CHARS = 420
 
 FRONTMATTER_RE = re.compile(r"^---\n.*?\n---\n", re.S)
 RELATED_BLOCK_RE = re.compile(r"\n##+ Related\b.*?(?=\n##+ |\Z)", re.S | re.I)
 BREADCRUMB_RE = re.compile(r"^\s*(?:\[\[[^\]]+\]\]\s*(?:›|>|/)\s*)+\[\[[^\]]+\]\]\s*$", re.M)
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]")
 CALLOUT_RE = re.compile(r"^>\s*\[![a-z]+\]\s*", re.M | re.I)
+HEADING_RE = re.compile(r"^#{2,6}\s+(.+?)\s*$", re.M)
 
 
 def _sqlite_vec():
@@ -146,13 +148,14 @@ def clean_text(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def chunk(text: str, size: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP) -> list[str]:
-    """Split on paragraph boundaries where possible, with overlap for context."""
+def _chunk_spans(text: str, size: int = CHUNK_CHARS,
+                 overlap: int = CHUNK_OVERLAP) -> list[tuple[str, int]]:
+    """Split text while retaining offsets for deterministic section context."""
     text = text.strip()
     if not text:
         return []
     if len(text) <= size:
-        return [text]
+        return [(text, 0)]
     out, start = [], 0
     while start < len(text):
         end = min(start + size, len(text))
@@ -165,11 +168,16 @@ def chunk(text: str, size: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP) -> l
                     break
         piece = text[start:end].strip()
         if len(piece) >= MIN_CHUNK_CHARS:
-            out.append(piece)
+            out.append((piece, start))
         if end >= len(text):
             break
         start = max(end - overlap, start + 1)
     return out
+
+
+def chunk(text: str, size: int = CHUNK_CHARS, overlap: int = CHUNK_OVERLAP) -> list[str]:
+    """Split on paragraph boundaries where possible, with overlap for context."""
+    return [piece for piece, _ in _chunk_spans(text, size, overlap)]
 
 
 def _hash(s: str) -> str:
@@ -191,9 +199,86 @@ def _read(p: Path) -> str:
     return ""
 
 
+def _plain_context(text: str, limit: int) -> str:
+    text = WIKILINK_RE.sub(lambda m: (m.group(2) or m.group(1)), text)
+    text = re.sub(r"[#*_`]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:limit].rstrip()
+
+
+def _frontmatter_summary(text: str) -> str:
+    match = FRONTMATTER_RE.match(text)
+    if not match:
+        return ""
+    for line in match.group(0).splitlines()[1:-1]:
+        key, separator, value = line.partition(":")
+        if separator and key.strip().casefold() == "summary":
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+                value = value[1:-1]
+            return _plain_context(value, 120)
+    return ""
+
+
+def _page_title(rel: str, text: str) -> str:
+    match = re.search(r"^#\s+(.+?)\s*$", text, re.M)
+    if match:
+        title = _plain_context(match.group(1), 100)
+        if title:
+            return title
+    return _plain_context(re.sub(r"[-_]+", " ", Path(rel).stem).title(), 100)
+
+
+def _page_class(rel: str, text: str) -> str:
+    parent = Path(rel).parent.as_posix()
+    for line in text.splitlines():
+        if BREADCRUMB_RE.fullmatch(line):
+            labels = [
+                _plain_context(m.group(2) or m.group(1), 48)
+                for m in WIKILINK_RE.finditer(line)
+            ]
+            labels = [label for label in labels if label]
+            if labels:
+                context = labels[:-1] or labels
+                if not (len(context) == 1
+                        and context[0].casefold() in {"home", "index"}):
+                    return " > ".join(context[-3:])[:100].rstrip()
+    return parent if parent != "." else "vault"
+
+
+def _nearest_heading(text: str, offset: int) -> str:
+    headings = [m.group(1) for m in HEADING_RE.finditer(text)
+                if m.start() <= offset]
+    return _plain_context(headings[-1], 100) if headings else ""
+
+
+def _context_header(rel: str, raw: str, body: str, offset: int) -> str:
+    """Carry stable page identity into both retrievers without storing boilerplate in previews."""
+    fields = [
+        ("Page", _page_title(rel, raw)),
+        ("Area", _page_class(rel, raw)),
+        ("Section", _nearest_heading(body, offset)),
+        ("Summary", _frontmatter_summary(raw)),
+    ]
+    header = " | ".join(f"{label}: {value}" for label, value in fields if value)
+    return header[:CONTEXT_HEADER_MAX_CHARS].rstrip()
+
+
+def _prepared_chunks(rel: str, raw: str, contextual: bool) -> list[tuple[str, str]]:
+    body = clean_text(raw)
+    spans = _chunk_spans(body)
+    if not contextual:
+        return [(piece, piece) for piece, _ in spans]
+    return [
+        (piece, f"{_context_header(rel, raw, body, offset)}\n\n{piece}")
+        for piece, offset in spans
+    ]
+
+
 # ---------------------------------------------------------------- index
 def index(vault: Path | None = None, db: Path | None = None,
-          verbose: bool = True, limit_pages: int | None = None) -> dict:
+          verbose: bool = True, limit_pages: int | None = None,
+          contextual: bool = False) -> dict:
     """Embed new or changed chunks. Returns a stats dict; never raises."""
     paths = config.paths()
     vault = Path(vault or paths["vault"])
@@ -227,51 +312,61 @@ def index(vault: Path | None = None, db: Path | None = None,
     existing = {(r["path"], r["chunk_ix"]): (r["rowid"], r["content_hash"])
                 for r in con.execute("SELECT rowid, path, chunk_ix, content_hash FROM chunks")}
     seen: set[tuple[str, int]] = set()
-    pending: list[tuple[str, int, str, str]] = []   # path, ix, hash, text
+    pending: list[tuple[str, int, str, str, str]] = []
+    # path, ix, hash, indexed text, clean preview
     all_chunks: list[tuple[str, int, str]] = []     # every chunk, for the BM25 rebuild
 
     page_list = list(_pages(vault))
-    if limit_pages:
+    if limit_pages is not None:
         page_list = page_list[:limit_pages]
+    scope_rels = {p.relative_to(vault).as_posix() for p in page_list}
 
     for p in page_list:
         rel = p.relative_to(vault).as_posix()
-        body = clean_text(_read(p))
-        pieces = chunk(body)
+        raw = _read(p)
+        pieces = _prepared_chunks(rel, raw, contextual)
         if not pieces:
             stats["skipped_pages"] += 1
             continue
         stats["pages"] += 1
-        for ix, piece in enumerate(pieces):
+        for ix, (preview, indexed_text) in enumerate(pieces):
             key = (rel, ix)
             seen.add(key)
             stats["chunks"] += 1
-            all_chunks.append((rel, ix, piece))
-            h = _hash(piece)
+            all_chunks.append((rel, ix, indexed_text))
+            h = _hash(indexed_text)
             prior = existing.get(key)
             if prior and prior[1] == h:
                 stats["reused"] += 1      # unchanged text: no API call
                 continue
-            pending.append((rel, ix, h, piece))
+            pending.append((rel, ix, h, indexed_text, preview))
 
-    # Chunks whose page vanished or shrank.
-    stale = [v[0] for k, v in existing.items() if k not in seen]
+    # A partial run owns only its selected paths; treating unseen out-of-scope
+    # rows as stale was the destructive failure mode that erased the live index.
+    stale = [
+        v[0] for k, v in existing.items()
+        if k not in seen and (limit_pages is None or k[0] in scope_rels)
+    ]
     for rid in stale:
         con.execute("DELETE FROM vec_chunks WHERE rowid = ?", (rid,))
         con.execute("DELETE FROM chunks WHERE rowid = ?", (rid,))
     stats["deleted"] = len(stale)
 
-    # BM25 is rebuilt wholesale rather than incrementally. Full text is not
-    # retained anywhere (chunks stores only a 200-char preview), so an
-    # incremental update would need a second read of every page; and at ~8k
-    # chunks a full FTS5 rebuild is well under a second. Doing it here also
-    # means an older sidecar predating chunk_fts is repaired on first re-index.
-    if not limit_pages:
+    # Full runs rebuild BM25 wholesale. Partial runs replace only their paths,
+    # keeping both out-of-scope rows and their lexical index intact.
+    if limit_pages is None:
         con.execute("DELETE FROM chunk_fts")
         con.executemany(
             "INSERT INTO chunk_fts (body, path, chunk_ix) VALUES (?,?,?)",
             [(piece, rel, ix) for rel, ix, piece in all_chunks])
-        con.commit()
+    elif scope_rels:
+        placeholders = ",".join("?" for _ in scope_rels)
+        con.execute(f"DELETE FROM chunk_fts WHERE path IN ({placeholders})",
+                    tuple(sorted(scope_rels)))
+        con.executemany(
+            "INSERT INTO chunk_fts (body, path, chunk_ix) VALUES (?,?,?)",
+            [(piece, rel, ix) for rel, ix, piece in all_chunks])
+    con.commit()
 
     if verbose:
         print(f"[vault_vectors] {stats['pages']} pages, {stats['chunks']} chunks; "
@@ -286,17 +381,17 @@ def index(vault: Path | None = None, db: Path | None = None,
             print(f"[vault_vectors] embedding failed at batch {i // BATCH}; "
                   f"keeping {stats['embedded']} already written.", file=sys.stderr)
             break
-        for (rel, ix, h, piece), vec in zip(group, vectors):
+        for (rel, ix, h, _indexed_text, preview), vec in zip(group, vectors):
             prior = existing.get((rel, ix))
             if prior:
                 rid = prior[0]
                 con.execute("DELETE FROM vec_chunks WHERE rowid = ?", (rid,))
                 con.execute("UPDATE chunks SET content_hash = ?, preview = ? "
-                            "WHERE rowid = ?", (h, piece[:200], rid))
+                            "WHERE rowid = ?", (h, preview[:200], rid))
             else:
                 cur = con.execute(
                     "INSERT INTO chunks (path, chunk_ix, content_hash, preview) "
-                    "VALUES (?,?,?,?)", (rel, ix, h, piece[:200]))
+                    "VALUES (?,?,?,?)", (rel, ix, h, preview[:200]))
                 rid = cur.lastrowid
             con.execute("INSERT INTO vec_chunks (rowid, embedding) VALUES (?, ?)",
                         (rid, _pack(vec)))
@@ -321,6 +416,22 @@ def _pack(vec) -> bytes:
 
 # --------------------------------------------------------------- search
 RRF_K = 60          # standard Reciprocal Rank Fusion constant
+# A relaxed OR match is recall evidence, not equivalent to a strict conjunction.
+# Flattening that ladder keeps it useful for discovery without letting a weak
+# lexical hit displace a confident semantic result.
+RELAXED_RRF_K = 120
+STRICT_MIN_RESULTS = 1
+
+# Question words, auxiliaries, pronouns, articles, and connective/prepositional
+# words add little topical signal in a tiny FTS chunk. Retaining them in an OR
+# fallback lets "how" or "does" outrank the terms that name the subject.
+NATURAL_LANGUAGE_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "could",
+    "did", "do", "does", "for", "from", "how", "i", "in", "is", "it",
+    "me", "my", "of", "on", "or", "our", "should", "that", "the", "to",
+    "was", "we", "what", "when", "which", "who", "why", "with", "would",
+    "you", "your",
+})
 
 
 def _sanitise_fts(q: str) -> str:
@@ -337,6 +448,42 @@ def _sanitise_fts(q: str) -> str:
         else:
             parts.append('"' + tok.replace('"', '""') + '"')
     return " ".join(parts)
+
+
+def _has_explicit_fts_syntax(query: str) -> bool:
+    """Keep intentional FTS expressions exact rather than weakening their meaning."""
+    return (bool(re.search(r'"|\b(?:AND|OR|NOT|NEAR)\b|\w\*', query, re.I))
+            or "(" in query or ")" in query)
+
+
+def _relaxed_fts(query: str) -> str:
+    """Build a recall-oriented OR expression from a natural-language question.
+
+    If every token is conversational scaffolding, retain the original
+    conjunction instead of turning a vague question into a broad OR search.
+    """
+    content = []
+    for token in query.split():
+        word = re.sub(r"^\W+|\W+$", "", token).casefold()
+        if word and word not in NATURAL_LANGUAGE_STOPWORDS:
+            content.append(_sanitise_fts(token))
+    return " OR ".join(content) if content else _sanitise_fts(query)
+
+
+def _is_natural_language_query(query: str) -> bool:
+    """Do not weaken a zero-hit keyword lookup just because it has many terms."""
+    return any(
+        re.sub(r"^\W+|\W+$", "", token).casefold() in NATURAL_LANGUAGE_STOPWORDS
+        for token in query.split()
+    )
+
+
+def _bm25_rows(con: sqlite3.Connection, sql: str, query: str, k: int):
+    """Run the verbatim query first so paths and deliberate FTS syntax survive."""
+    try:
+        return con.execute(sql, (query, k)).fetchall()
+    except sqlite3.OperationalError:
+        return con.execute(sql, (_sanitise_fts(query), k)).fetchall()
 
 
 def search_bm25(query: str, limit: int = 10, db: Path | None = None) -> list[dict]:
@@ -358,11 +505,20 @@ def search_bm25(query: str, limit: int = 10, db: Path | None = None) -> list[dic
         ORDER BY score LIMIT ?
     """
     k = max(limit * 5, 30)
+    branch = "strict"
     try:
-        try:
-            rows = con.execute(sql, (query, k)).fetchall()
-        except sqlite3.OperationalError:
-            rows = con.execute(sql, (_sanitise_fts(query), k)).fetchall()
+        rows = _bm25_rows(con, sql, query, k)
+        # FTS5 joins bare tokens with implicit AND. That is desirable for a
+        # precise lookup, but makes ordinary questions empty on 1,200-character
+        # chunks. Only relax an insufficient natural-language result; explicit
+        # FTS syntax is a request for exact semantics, not a spelling mistake.
+        if (len(rows) < STRICT_MIN_RESULTS
+                and _is_natural_language_query(query)
+                and not _has_explicit_fts_syntax(query)):
+            relaxed = _relaxed_fts(query)
+            if relaxed != query:
+                rows = _bm25_rows(con, sql, relaxed, k)
+                branch = "relaxed"
     except sqlite3.Error as e:
         print(f"[vault_vectors] bm25 search failed: {e}", file=sys.stderr)
         return []
@@ -377,7 +533,7 @@ def search_bm25(query: str, limit: int = 10, db: Path | None = None) -> list[dic
         cur = best.get(r["path"])
         if cur is None or r["score"] < cur["score"]:
             best[r["path"]] = {"path": r["path"], "score": r["score"],
-                               "chunk_ix": r["chunk_ix"]}
+                               "chunk_ix": r["chunk_ix"], "branch": branch}
     out = sorted(best.values(), key=lambda d: d["score"])
     for rank, d in enumerate(out, 1):
         d["rank"] = rank
@@ -410,7 +566,12 @@ def search_hybrid(query: str, limit: int = 10, db: Path | None = None) -> list[d
         for d in results:
             e = fused.setdefault(d["path"], {"path": d["path"], "rrf": 0.0,
                                              "sources": [], "chunk_ix": d.get("chunk_ix")})
-            e["rrf"] += 1.0 / (RRF_K + d["rank"])
+            effective_k = (
+                RELAXED_RRF_K
+                if source == "bm25" and d.get("branch") == "relaxed"
+                else RRF_K
+            )
+            e["rrf"] += 1.0 / (effective_k + d["rank"])
             e["sources"].append(f"{source}#{d['rank']}")
             if source == "vector":
                 e["distance"] = d.get("distance")
@@ -543,24 +704,32 @@ def main() -> int:
     pi = sub.add_parser("index", help="embed new or changed chunks")
     pi.add_argument("--limit-pages", type=int, default=None,
                     help="only process the first N pages (smoke testing)")
+    pi.add_argument("--db", type=Path, default=None,
+                    help="alternate sidecar path (default: configured vault_vectors)")
+    pi.add_argument("--contextual", "--contextual-chunks", dest="contextual",
+                    action="store_true",
+                    help="prepend deterministic page context to indexed chunks")
     pi.add_argument("--quiet", action="store_true")
-    sub.add_parser("status", help="show sidecar statistics")
+    pst = sub.add_parser("status", help="show sidecar statistics")
+    pst.add_argument("--db", type=Path, default=None)
     ps = sub.add_parser("search", help="semantic search")
     ps.add_argument("query")
     ps.add_argument("--limit", type=int, default=10)
+    ps.add_argument("--db", type=Path, default=None)
     a = ap.parse_args()
 
     if a.cmd == "index":
-        s = index(verbose=not a.quiet, limit_pages=a.limit_pages)
+        s = index(db=a.db, verbose=not a.quiet, limit_pages=a.limit_pages,
+                  contextual=a.contextual)
         print(f"\nembedded {s['embedded']}, reused {s['reused']}, "
               f"deleted {s['deleted']} across {s['pages']} pages")
         return 0 if s["ok"] else 1
     if a.cmd == "status":
-        for k, v in status().items():
+        for k, v in status(a.db).items():
             print(f"{k:12s}: {v}")
         return 0
     if a.cmd == "search":
-        hits = search(a.query, a.limit)
+        hits = search(a.query, a.limit, a.db)
         if not hits:
             print("no vector results (unavailable, or nothing indexed)")
             return 1

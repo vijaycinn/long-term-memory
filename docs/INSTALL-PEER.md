@@ -13,7 +13,7 @@ packages with `pip`.** The Python code uses the standard library; `pyyaml` is
 the one optional import and `wiki\check_frontmatter.py` exits cleanly when it
 is absent (`wiki\check_frontmatter.py:15-19`; import inventory checked across
 `*.py`). The repository's own prerequisite check states the same requirement
-(`README.md:90-98`).
+(`README.md:80-84`).
 
 ```powershell
 python --version
@@ -27,8 +27,7 @@ CLI is active as a `_microsoft` Enterprise Managed User (EMU), cloning can say
 `Repository not found` even when the repository exists. GitHub masks the
 permission failure as a 404; do not debug the URL first. An EMU also cannot
 fork outside the enterprise, so "just fork it" is not a workaround
-(`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:348`, `:363-365`;
-`README.md:107-110`).
+(`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:293`; `README.md:146-155`).
 
 ```powershell
 gh auth status
@@ -88,7 +87,7 @@ Run the memory installer first.
 It creates the database, exports the context bridge, registers the two session
 hooks, installs the generated hook guard, and appends the persistent-memory instruction block to
 `<workspace-root>\.github\copilot-instructions.md`
-(`setup\install-memory.ps1:25-36`, `:125-185`, `:184-225`, `:196-200`).
+(`setup\install-memory.ps1:25-36`, `:126-182`, `:183-221`, `:81-93`).
 
 Check `<COPILOT_HOME>\settings.json`. The installer preserves other hooks,
 replaces only its own entries, and creates this exact shape; replace
@@ -144,7 +143,7 @@ configured memory-database path and declares that its sample data is neutral
 (`setup\seed_memory.py:1-15`); leave the switch off when you want a genuinely
 empty personal store. If you work from an older checkout, inspect that file
 before using the switch: the prior version contained named, HR-sensitive VOF
-data despite the generic option name (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:350`).
+data despite the generic option name (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:295`).
 
 ## 4. Install the wiki and MCP server
 
@@ -187,18 +186,21 @@ registers a hook pointing at a script that no longer exists.
 Do not copy `copilot-config\hooks\hook-guard.json` directly. The current
 installer copies it to `<COPILOT_HOME>\hooks\hook-guard.json`, substitutes
 `{{REPO_ROOT}}` with your clone path, and refuses to install it if a listed
-script is absent (`setup\install-memory.ps1:184-221`). The
-current template has three repository-relative commands, including
-`plugin_extensions.py`; `mcp-oauth-prune.ps1` is no longer registered. If
+script is absent (`setup\install-memory.ps1:184-221`). The current template
+registers four `sessionEnd` scripts — `prune_orphan_hooks.py`,
+`prune_copilot_state.py`, `prune_mcp_oauth.ps1`, and `plugin_extensions.py`
+(`copilot-config\hooks\hook-guard.json`). A 2026-09-02 fix (commit `5409c4c`)
+replaced a prior broken reference to a missing script with
+`prune_mcp_oauth.ps1`, shipping the script instead of only referencing it. If
 using an older checkout, verify every configured command targets a file that
 exists: the prior template used machine-specific paths and referenced an
-absent script (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:349`).
+absent script (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:294`).
 
 ## 5. Set your identity
 
 Nothing prompts for identity. The bridge renders its identity section from the
 single entity whose `is_self` value is set; without one, no identity section
-appears (`memory.ps1:312-331`; `CAPABILITIES.md:24-34`).
+appears (`memory.ps1:322-341`; `CAPABILITIES.md:223`).
 
 ```powershell
 . .\memory.ps1
@@ -208,9 +210,21 @@ Export-MemoryContext
 
 `Set-Identity` accepts optional `-EntityType`, `-Notes`, and `-Attributes`;
 the command above uses its required `-Name` parameter and the default
-`person` entity type (`memory.ps1:321-329`).
+`person` entity type (`memory.ps1:331-337`).
 
 ## 6. Optional — enable semantic search
+
+**The everyday loop needs no manual step, once this section is done.**
+`Sync-Vault` re-embeds every page it changes as part of its normal rebuild —
+capture a fact with `Remember-This`, run `Sync-Vault`, and it is semantically
+searchable in about 37 seconds, verified end to end
+(`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:398`; not re-run for this guide,
+since it requires writing a fact into the live `memory.db`, which this
+checklist does not touch). Skip that behavior with `Sync-Vault -NoIndex`, or
+permanently with `$env:LTM_VAULT_AUTOINDEX = '0'`, on a machine with no
+embedding endpoint configured (`memory.ps1:105-145`). Everything below this
+paragraph is the **one-time bootstrap** that makes that loop possible — you
+do the manual `vault_vectors.py index` walkthrough once, not every day.
 
 Everything above gives you a working vault with **lexical** search. Semantic
 search is opt-in and gated on an endpoint being configured: without one, every
@@ -238,6 +252,19 @@ python wiki\vault_vectors.py index
 python wiki\vault_vectors.py status
 ```
 
+> **Back up `vault-vectors.db` before any `index` operation, every time.**
+> `python wiki\vault_vectors.py index --limit-pages N` rebuilds destructively
+> rather than incrementally: on 2026-09-02 it wiped a live 619-page index down
+> to 33 pages in one run, costing roughly 40 minutes to re-embed and recover
+> (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:66`; `README.md:206-213`). It has
+> since been guarded and covered by a regression test
+> (`tests\test_vault_vectors.py:237`,
+> `test_limited_index_preserves_out_of_scope_chunks`), but a different way to
+> lose the sidecar is only ever a code change away — copy the file somewhere
+> before any indexing command regardless of which flags you pass. It is
+> excluded from git (`*.db` in `.gitignore`), so there is no recovery path
+> but a full, costly re-embed.
+
 **Why 512 dimensions and not 1536.** `text-embedding-3-small` is a Matryoshka
 model, so the vector can be truncated with little quality loss — MTEB 61.6
 versus 62.3. The sidecar is three times smaller for it: ~35 MB instead of
@@ -247,6 +274,20 @@ versus 62.3. The sidecar is three times smaller for it: ~35 MB instead of
 **content hash**, not mtime, so a rebuild that changes no text re-embeds
 nothing and costs **$0.00** — verified at 7,940/7,940 chunks reused. Run
 `index` freely.
+
+**The first build is slow — expect tens of minutes, not seconds.** A cold
+index embeds every chunk in the vault; at today's scale (**8,285 chunks**,
+verified live with `python wiki\vault_vectors.py status` while writing this
+guide) that is roughly 8,300 embedding calls at approximately 650 ms of
+network round-trip each (`CAPABILITIES.md:162-163` measures this round-trip
+cost for a single query; the same per-call cost applies to indexing). The
+observed cold-build wall-clock time is tens of minutes, reported by the vault
+owner and **not independently re-timed for this guide** — running a full cold
+rebuild costs real money and tens of minutes, and the live sidecar here is
+already built, so re-running it just to confirm a duration was not justified.
+Do not read a quiet terminal during a first index as a hang. Every
+incremental `Sync-Vault` afterward re-embeds only changed chunks and finishes
+in seconds, per the everyday loop above.
 
 **Latency, honestly.** A query string seen for the first time costs ~700 ms,
 almost entirely the network round-trip to embed it. A query cache in the
@@ -270,7 +311,7 @@ the reminder never appears.
 ## 7. Upgrade an existing database
 
 Installers initialize a database but do not call the migration operation
-(`setup\install-memory.ps1:182-200`; `core\memory_driver.py:548-584`). If you
+(`setup\install-memory.ps1:182-200`; `core\memory_driver.py:605-641`). If you
 restored or already had `memory.db`, run the idempotent migration before
 continuing.
 
@@ -281,7 +322,7 @@ Export-MemoryContext
 ```
 
 `Invoke-MemoryMigration` sends the `migrate` operation and is safe to rerun
-(`memory.ps1:334-363`; `README.md:646-652`).
+(`memory.ps1:344-372`; `README.md:123-128`).
 
 ## 8. Verify, then restart Copilot CLI
 
@@ -296,14 +337,16 @@ python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -
 
 Healthy output ends with the greenfield bootstrap success message, the MCP
 test's response summary with zero problems, and `OK` from unittest discovery.
-The current suite discovers **182** tests. `CAPABILITIES.md:10-15` still says
-172, so use the live unittest output rather than that stale count. The three
-commands are the repository's standard test sequence
-(`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:56-64`).
+Run live for this guide on 2026-09-02: bootstrap PASS, MCP test 9/9 OK, and
+**281 tests, OK** from unittest discovery. `CAPABILITIES.md:13` states 258 as
+of its own last edit — use the live unittest output over either written
+number; this repository's own README makes the identical point about its own
+count (`README.md:228-234`). The three commands are the repository's standard
+test sequence (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:87-92`).
 
 Then completely restart Copilot CLI. MCP servers and hooks load at session
 start, so the `vault` tools will not appear in the current session
-(`setup\install-wiki.ps1:234-235`; `README.md:178-181`).
+(`setup\install-wiki.ps1:234-235`; `README.md:143-144`).
 
 ## Troubleshooting
 
@@ -311,6 +354,6 @@ start, so the `vault` tools will not appear in the current session
 |---|---|---|
 | `Repository not found` | GitHub CLI is using an account without access; an EMU sees a masked 404. | Run `gh auth switch --user vijaycinn`, then clone again. Request collaborator access if that account cannot access the repository. |
 | No identity in my context | No entity is marked as self. | Run `. .\memory.ps1`, then `Set-Identity -Name "Your Name"` and `Export-MemoryContext`. |
-| `vault` tool missing from the tool list | The CLI session started before MCP registration, or MCP use is blocked by policy. | Restart Copilot CLI. If still absent, check the `mcpServers.vault` JSON above and the organization's MCP policy (`README.md:235-237`). |
+| `vault` tool missing from the tool list | The CLI session started before MCP registration, or MCP use is blocked by policy. | Restart Copilot CLI. If still absent, check the `mcpServers.vault` JSON above and whether your organization's Copilot CLI policy restricts custom MCP servers. |
 | Hooks did not run | `settings.json` was invalid, so the installer deliberately skipped it, or the session was already running. | Repair `settings.json`, rerun `.\setup\install-memory.ps1`, and start a new CLI session. |
 | Tests pass but nothing is injected | The generated start hook was removed for the startup-latency configuration, or the running session predates the hook change. | Decide whether to retain the `sessionStart` entry in step 3, then restart Copilot CLI. |

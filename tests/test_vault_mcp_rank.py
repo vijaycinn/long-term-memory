@@ -10,8 +10,10 @@ for _sib in ("core", "hooks", "ops", "wiki"):
 import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
+import memory_driver as md
 import vault_mcp
 
 SCHEMA = Path(_REPO) / "setup" / "init-memory.sql"
@@ -164,6 +166,56 @@ class RareTermTests(unittest.TestCase):
         # Must fall through to _sanitise_fts rather than raising OperationalError.
         vault_mcp._fts_query(self.con, "C:\\path\\to\\file.md", 5)
         vault_mcp._fts_query(self.con, "bob@example.com", 5)
+
+
+class DriverMcpRankingParityTests(unittest.TestCase):
+    """Search-Memory and memory_search must rank one shared FTS pool identically."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.db = Path(self._tmp.name) / "m.db"
+        self.con = _fresh_db(self.db)
+        topic = _add_topic(self.con, "platform-observability", "Platform Observability")
+        _add_fact(self.con, "Telemetry alpha rare shared signal.", topic, importance=1)
+        _add_fact(self.con, "Telemetry alpha generic operational note.", topic, importance=5)
+        _add_fact(self.con, "Zephyrcascade quota tuning is exact.", topic, importance=1)
+        _add_entity(self.con, "Contoso")
+        self.con.execute(
+            "INSERT INTO snapshots (topic_id, seq_number, title, summary) VALUES (?,?,?,?)",
+            (topic, 1, "Review", "snapshotneedle milestone recap"))
+        self.con.commit()
+
+    def tearDown(self):
+        self.con.close()
+        self._tmp.cleanup()
+
+    def test_driver_and_mcp_rank_five_queries_identically(self):
+        queries = (
+            "alpha",
+            "Zephyrcascade",
+            "Contoso",
+            "platform-observability",
+            "snapshotneedle",
+        )
+        with patch.dict("os.environ", {"LTM_MEMORY_DB": str(self.db)}):
+            for query in queries:
+                with self.subTest(query=query):
+                    driver_rows = md.search_memory({"db_path": str(self.db), "query": query})
+                    mcp_rows = vault_mcp._fts_query(self.con, query, 10)
+                    self.assertEqual(
+                        [(r["src"], r["id"]) for r in driver_rows],
+                        [(r["src"], r["id"]) for r in mcp_rows],
+                    )
+
+                    rendered = vault_mcp.t_memory_search({"query": query, "limit": 10})
+                    positions = [rendered.index(r["content"]) for r in mcp_rows]
+                    self.assertEqual(positions, sorted(positions))
+
+    def test_non_fact_hits_have_no_invented_importance(self):
+        rows = vault_mcp._fts_query(self.con, "Contoso", 10)
+        self.assertEqual(rows[0]["src"], "entities")
+        self.assertIsNone(rows[0]["importance"])
+        self.assertAlmostEqual(rows[0]["score"], vault_mcp.RANK_WEIGHT)
 
 
 class RelatedFactsTests(unittest.TestCase):

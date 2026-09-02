@@ -1,0 +1,227 @@
+{
+  "format": 1,
+  "measured_at_utc": "2026-09-02T23:28:53Z",
+  "latency_mode": "warm",
+  "recall_definition": "hit recall at ranks 5, 10, and 20: at least one expected target within each cutoff",
+  "mrr_definition": "mean reciprocal rank of the first correct result",
+  "golden_queries": 27,
+  "index_provenance": {
+    "path": "C:\\Users\\vcinnakonda\\.copilot\\vault-vectors.db",
+    "exists": true,
+    "chunks": 8285,
+    "pages": 651,
+    "dimensions": 512,
+    "model": "text-embedding-3-small"
+  },
+  "provenance": {
+    "revision": "5409c4c",
+    "diff_stat": "CAPABILITIES.md                          |  112 ++++++-\n README.md                                | 1286 +++++++++++++++++-----------------------------------------------------\n core/memory_driver.py                    |   86 ++++-\n docs/IMPLEMENTATION-PLAN-retrieval-v4.md |  471 ++++++++++++--------------\n memory.ps1                               |   20 +-\n ops/retrieval_bench.py                   |  596 +++++++++++++++++++++++++++++---\n tests/test_retrieval_bench.py            |  164 ++++++++-\n tests/test_vault_embed.py                |   26 ++\n tests/test_vault_mcp_rank.py             |   52 +++\n tests/test_vault_sync.py                 |  269 +++++++++++++++\n tests/test_vault_vectors.py              |  252 ++++++++++++++\n wiki/README.md                           |    2 +-\n wiki/build.py                            |   10 +-\n wiki/sync.py                             |  232 ++++++++++++-\n wiki/test_bootstrap.py                   |   11 +\n wiki/vault_mcp.py                        |  105 +++---\n wiki/vault_vectors.py                    |  241 +++++++++++--\n 17 files changed, 2514 insertions(+), 1421 deletions(-)"
+  },
+  "paths": {
+    "lexical_v0": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.3333,
+        "recall_at_10": 0.4074,
+        "recall_at_20": 0.4074,
+        "mrr": 0.1228,
+        "p50_ms": 91.2299,
+        "p95_ms": 112.247
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.5385,
+          "recall_at_10": 0.6923,
+          "recall_at_20": 0.6923,
+          "mrr": 0.2141,
+          "p50_ms": 93.42,
+          "p95_ms": 143.9512
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.6667,
+          "recall_at_10": 0.6667,
+          "recall_at_20": 0.6667,
+          "mrr": 0.1778,
+          "p50_ms": 90.4764,
+          "p95_ms": 93.7915
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0,
+          "recall_at_10": 0.0,
+          "recall_at_20": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 90.9583,
+          "p95_ms": 112.0517
+        }
+      }
+    },
+    "memory_v0": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "recall_at_20": 0.0,
+        "mrr": 0.0,
+        "p50_ms": 21.1323,
+        "p95_ms": 34.8905
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.0,
+          "recall_at_10": 0.0,
+          "recall_at_20": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 21.1323,
+          "p95_ms": 50.1612
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.0,
+          "recall_at_10": 0.0,
+          "recall_at_20": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 22.1095,
+          "p95_ms": 26.8787
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0,
+          "recall_at_10": 0.0,
+          "recall_at_20": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 20.8346,
+          "p95_ms": 28.7637
+        }
+      }
+    },
+    "vault_current": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.6296,
+        "recall_at_10": 0.7037,
+        "recall_at_20": 0.7778,
+        "mrr": 0.492,
+        "p50_ms": 190.0018,
+        "p95_ms": 884.4
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.9231,
+          "recall_at_10": 0.9231,
+          "recall_at_20": 1.0,
+          "mrr": 0.8333,
+          "p50_ms": 174.5836,
+          "p95_ms": 2689.8525
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0,
+          "recall_at_20": 1.0,
+          "mrr": 0.4,
+          "p50_ms": 139.5169,
+          "p95_ms": 181.9045
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.1818,
+          "recall_at_10": 0.3636,
+          "recall_at_20": 0.4545,
+          "mrr": 0.1136,
+          "p50_ms": 680.9219,
+          "p95_ms": 884.4
+        }
+      }
+    },
+    "vault_current_hops1": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.5556,
+        "recall_at_10": 0.5556,
+        "recall_at_20": 0.5926,
+        "mrr": 0.4753,
+        "p50_ms": 152.4668,
+        "p95_ms": 206.5837
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.9231,
+          "recall_at_10": 0.9231,
+          "recall_at_20": 1.0,
+          "mrr": 0.8333,
+          "p50_ms": 151.2112,
+          "p95_ms": 222.0121
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.6667,
+          "recall_at_10": 0.6667,
+          "recall_at_20": 0.6667,
+          "mrr": 0.3333,
+          "p50_ms": 133.3688,
+          "p95_ms": 148.1495
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0909,
+          "recall_at_10": 0.0909,
+          "recall_at_20": 0.0909,
+          "mrr": 0.0909,
+          "p50_ms": 161.6914,
+          "p95_ms": 206.5837
+        }
+      }
+    },
+    "memory_current": {
+      "status": "ok",
+      "overall": {
+        "queries": 27,
+        "recall_at_5": 0.0,
+        "recall_at_10": 0.0,
+        "recall_at_20": 0.0,
+        "mrr": 0.0,
+        "p50_ms": 39.2761,
+        "p95_ms": 56.4015
+      },
+      "classes": {
+        "local": {
+          "queries": 13,
+          "recall_at_5": 0.0,
+          "recall_at_10": 0.0,
+          "recall_at_20": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 39.2761,
+          "p95_ms": 69.8672
+        },
+        "multihop": {
+          "queries": 3,
+          "recall_at_5": 0.0,
+          "recall_at_10": 0.0,
+          "recall_at_20": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 39.0947,
+          "p95_ms": 53.3178
+        },
+        "paraphrase": {
+          "queries": 11,
+          "recall_at_5": 0.0,
+          "recall_at_10": 0.0,
+          "recall_at_20": 0.0,
+          "mrr": 0.0,
+          "p50_ms": 40.3605,
+          "p95_ms": 55.0674
+        }
+      }
+    }
+  }
+}

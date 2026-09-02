@@ -1,32 +1,578 @@
 {
-  "_comment": "expect_pages values are vault page stems. The harness resolves them with the same direct-path then case-insensitive-stem algorithm as wiki/vault_mcp.py:_resolve(). Queries were extracted and normalized from session-store user messages, with vault log/session pages used to confirm targets.",
+  "_comment": "MERGED 2026-09-02: this is a superset, not a replacement. The first 36 entries (g01-g36 ids) are the original session-store-mined rebuild - every one traces to a real ~/.copilot/session-store.db user message verified as an exact substring at a cited (session_id, turn_index), and every target page was verified by reading it, never by running a search and recording the result. See provenance.json for the verbatim quote, session id, turn index and timestamp on each - provenance_type 'session'. That set previously measured paraphrase Recall@20 54.5%->81.8% and overall 81.5%->92.6% with NO retrieval code change, the cleanest available proof that the prior synthetic paraphrase class (not this one) was the defect, not the retrieval system. Three real defects were caught and fixed while building it: g05's expect_facts was a fabricated composite absent from memory.db (replaced with real fact id=38); g11/g23 had mojibake U+FFFD where the DB has an em dash (byte-corrected); g21's second target is a builder-truncated filename stem (the page title reads '...pitches are wrong', the file on disk ends '...obvious pi.md'). The remaining 21 entries (ids gcc-*/cu-*/mh-*) are owner-curated additions layered on top per the owner's explicit priority domains (GCC product availability: Agent P3, Copilot Studio, Dev Box; GCC models/access: ZDR, Claude/Anthropic, Azure Government vs GCC, GCC Entra enclave vs commercial; Content Understanding: closed model list, billing meters, analyzer-vs-model cost lever, prebuilt-read meter, checkbox defect, legal-doc RAG routing, and the Azure-Government-vs-M365-GCC availability nuance) plus the owner's explicit GitHub-Copilot local/paraphrase pair. These have no verbatim session-store source; provenance.json marks them provenance_type 'owner-curated' rather than fabricating a session citation. Ground truth for every curated entry was still established by reading the target page in full. 8 curated queries that were near-duplicates of an existing harvested query (same page, same fact, materially the same question) were pruned as padding rather than kept - their verified expect_facts/expect_pages were folded into the harvested entry they duplicated instead of being lost: gcc-agent365 (dup of g13) and gcc-fabric (dup of g12) folded their fact into g12/g13; gcc-teamsphone (dup of g28); cu-poc (exact-text dup of g06); gcc-claude-datazone (near-dup of g30, folded its two extra expect_pages into g30); cu-customweights-trap (near-dup of g26, folded its fact into g26); gcc-voicemai-cost (near-dup of g32, folded its fact into g32); mh-devbox-frontline (near-dup of g23, same Dev Box/Frontline two-page synthesis). Class is assigned honestly per wording-vs-page-vocabulary throughout, never padded to hit a minimum - several paraphrase/multihop entries are deliberately the 'GCC uses commercial Azure, not Azure Government' trap (a retrieval system returning 'not available in GCC' for an Azure service, or missing the reverse Power Platform exception which genuinely runs on Azure Government, is confidently wrong), and the GitHub Copilot pair is the deliberate CONTRAST case: it is a SaaS product where 'not available in GCC' is genuinely true but incomplete (GitHub Copilot Enterprise + US data residency + FedRAMP model restrictions is a real supported path) - a system that pattern-matches 'GCC -> unavailable' uniformly fails this case exactly where it succeeds on the Azure-service traps. expect_pages values are vault page stems, resolved the same way as wiki/vault_mcp.py:_resolve(). expect_facts are populated only where the exact string was verified to round-trip against facts.content in memory.db immediately before this file was written; everything else is left []. Excludes '10-Synthesis/Retrieval v4 Phase 3 impact on GCC and Content Understanding litmus tests' (self-authored by this session's own agents).",
   "queries": [
-    {"id": "g01", "query": "what did we conclude about SAIF's OCR cost", "expect_pages": ["SAIF (TPID 20847298) — Foundry OCR options for the 65M-document OnBase backfill"], "expect_facts": [], "class": "local"},
-    {"id": "g02", "query": "why did document extraction burst traffic get rate limited", "expect_pages": ["SAIF 429 Analysis"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g03", "query": "which setting ignored the small language model swap", "expect_pages": ["Research SAIF CU — GET defaults Response Analysis + Chu Draft"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g04", "query": "what would it cost to digitize our historical insurance repository", "expect_pages": ["SAIF (TPID 20847298) — Foundry OCR options for the 65M-document OnBase backfill"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g05", "query": "SAIF 429 analysis", "expect_pages": ["SAIF 429 Analysis"], "expect_facts": [], "class": "local"},
-    {"id": "g06", "query": "SAIF Content Understanding PoC", "expect_pages": ["SAIF Content Understanding PoC — Implementation Guide"], "expect_facts": [], "class": "local"},
-    {"id": "g07", "query": "SAIF Databricks AWS migration", "expect_pages": ["Azure Databricks vs. Databricks on AWS — seller brief for SAIF (TPID 20847298)"], "expect_facts": [], "class": "local"},
-    {"id": "g08", "query": "City of Fort Worth AI Foundry architecture", "expect_pages": ["City of Fort Worth — Azure Subscription & AI Agent Architecture Recommendation"], "expect_facts": [], "class": "local"},
-    {"id": "g09", "query": "Fort Worth monthly cadence milestone", "expect_pages": ["City of Fort Worth"], "expect_facts": [], "class": "local"},
-    {"id": "g10", "query": "Portland GCC security engagement", "expect_pages": ["Topic - City of Portland - GCC AI and Security Engagement"], "expect_facts": [], "class": "local"},
-    {"id": "g11", "query": "County San Luis Obispo Dev Box", "expect_pages": ["County of San Luis Obispo"], "expect_facts": [], "class": "local"},
-    {"id": "g12", "query": "M365 GCC Fabric availability", "expect_pages": ["Microsoft Fabric"], "expect_facts": [], "class": "local"},
-    {"id": "g13", "query": "Copilot Agents GCC", "expect_pages": ["M365 Copilot Agents (Agent365)"], "expect_facts": [], "class": "local"},
-    {"id": "g14", "query": "Enghouse API Management OAuth gateway", "expect_pages": ["Azure API Management — MCP, OAuth & AI Gateway"], "expect_facts": [], "class": "local"},
-    {"id": "g15", "query": "APIM v2 tiers feature", "expect_pages": ["Azure API Management — v2 Tiers Feature Matrix"], "expect_facts": [], "class": "local"},
-    {"id": "g16", "query": "Linn County GIS Azure cost estimate", "expect_pages": ["Linn County GIS Analytics on Azure - Cost Estimate (Source-Cited)"], "expect_facts": [], "class": "local"},
-    {"id": "g17", "query": "how do I retain organizational knowledge in my assistant", "expect_pages": ["Vault Guide"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g18", "query": "why is the wiki behaving like find-in-page", "expect_pages": ["I built a knowledge graph and never traverse it - vault retrieval audit"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g19", "query": "what cheap adjustment lets related notes participate in lookup", "expect_pages": ["I built a knowledge graph and never traverse it - vault retrieval audit"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g20", "query": "what caused internal candidates to disappear after eleven days", "expect_pages": ["Microsoft internal application rejections - the 11-day screening pattern"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g21", "query": "how should I position a cloud data platform move for the insurer", "expect_pages": ["Azure Databricks vs. Databricks on AWS — seller brief for SAIF (TPID 20847298)"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g22", "query": "how do I publish an account insight to colleagues without sharing raw memory", "expect_pages": ["team-brain-publish — promote a card from your vault to the team"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g23", "query": "County San Luis Obispo Frontline", "expect_pages": ["Windows 365 Frontline"], "expect_facts": [], "class": "multihop"},
-    {"id": "g24", "query": "Fort Worth Foundry workflow retirement", "expect_pages": ["Foundry Workflows designer retires 1 December 2026, but the YAML survives"], "expect_facts": [], "class": "multihop"},
-    {"id": "g25", "query": "SAIF Databricks claims platform", "expect_pages": ["SAIF — The Integrated Claims Platform Argument"], "expect_facts": [], "class": "multihop"},
-    {"id": "g26", "query": "can I use a different foundation model with the document parser", "expect_pages": ["Content Understanding 2026 - talk track, cost model and the Mistral answer"], "expect_facts": [], "class": "paraphrase"},
-    {"id": "g27", "query": "how do I keep an analysis from vanishing when the chat ends", "expect_pages": ["How to use the vault - cheat sheet"], "expect_facts": [], "class": "paraphrase"}
+    {
+      "id": "g01",
+      "query": "what did we conclude about SAIF's OCR cost",
+      "expect_pages": [
+        "SAIF (TPID 20847298) — Foundry OCR options for the 65M-document OnBase backfill"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "g05",
+      "query": "SAIF 429 analysis",
+      "expect_pages": [
+        "SAIF 429 Analysis"
+      ],
+      "expect_facts": [
+        "SAIF contact Ramesh (rambal@saif.com) is troubleshooting 429 and quota issues for a claims-submission PoC built on Azure Content Understanding, initially running in EastUS2."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "g06",
+      "query": "SAIF Content Understanding PoC",
+      "expect_pages": [
+        "SAIF Content Understanding PoC — Implementation Guide"
+      ],
+      "expect_facts": [
+        "SAIF claims Content Understanding COST-OPTIMIZATION insight (from Vijay's April 25 2026 email to rambal@saif.com, thread 'Analyzer in CU for Layout + Schema'): Two cost levers proven in the PoC -> (1) GPT-4.1-mini vs GPT-4.1 = ~80% cheaper tokens (~ per 8K-image batch on 4.1 -> ~-800 on mini); (2) BIGGEST lever: drop the LLM entirely by switching analyzer from prebuilt-documentFields (LLM-based, forced full GPT-4.1 at / per 1M tokens, no mini support) to prebuilt-read (pure OCR) or prebuilt-layout (OCR+tables) = NO LLM tokens = projected ~98-99% cost reduction. Root cause: prebuilt-documentFields is a utility analyzer that doesn't support mini and runs everything at full GPT-4.1 rates. Direction Vijay recommended: OCR-only field extraction (prebuilt-read/layout) or a custom analyzer for claim docs, especially when only markdown/text+fields are needed (no generative grounding). Baseline observed: 8K images ~=  (~37-40 cents/image on the LLM run) vs expected 3-5 cents/image. This reduction ladder (LLM full 100 / mini 20 / OCR-only ~1.5) is now the cost slide in the SAIF AI Briefing deck."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "g07",
+      "query": "SAIF Databricks AWS migration",
+      "expect_pages": [
+        "Azure Databricks vs. Databricks on AWS — seller brief for SAIF (TPID 20847298)"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "g08",
+      "query": "City of Fort Worth AI Foundry architecture",
+      "expect_pages": [
+        "City of Fort Worth — Azure Subscription & AI Agent Architecture Recommendation"
+      ],
+      "expect_facts": [
+        "City of Fort Worth \"AI Way Ahead\" session 2026-07-27 (10:00-12:00 CST, customer-organized by Ken Hoag; also Lee Alvarez, Risa Luthor + MSFT Sean Beaumont, Orlando Walker II, Jens Andersen, Bret Ustipak, Michael McCowan, Akanksha Sharma, Jason Phillips). Vijay recommended Azure AI Search + Foundry IQ for agent grounding, positioned Foundry control plane as interim agent governance until Agent 365 reaches GCC, covered GCC model availability/compliance, gave Foundry agent ROI guidance, and clarified Scout as Frontier (not GA). Logged to MSX as an Architecture Design Session (HoK) against milestone 7-504145723 \"Apps/AI Foundry ongoing milestone\" (opp: CITY OF FORT WORTH - Apps/AI Foundry, workload AI: Foundry IQ and Search). Open action on Vijay: evaluate the AI Search + Foundry grounding architecture with Orlando Walker II, Akanksha Sharma and Bret Ustipak."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "g09",
+      "query": "Fort Worth monthly cadence milestone",
+      "expect_pages": [
+        "City of Fort Worth"
+      ],
+      "expect_facts": [
+        "MSX MILESTONE MAPPING - Fort Worth. Vijay says \"the monthly cadence milestone\" but NO MSX milestone carries that name; a literal name search returns nothing. The real record is \"Apps/AI Foundry ongoing milestone\", number 7-504145723, GUID 1ec0953d-c48a-f111-ab10-000d3a8cec9b, On Track, due 2027-03-31. CRITICAL: it hangs off account CITY OF FORT WORTH (accountid 07863739-7409-48fb-b3fe-16f46f2bea47), NOT TX-CITY OF FORT WORTH (b2df8f2e-0f09-4009-ab6f-c6f96ddd5e92) which holds only older non-AI milestones - searching the TX- prefixed account first wasted a lookup. Owner Orlando Walker II, opportunity \"CITY OF FORT WORTH - Apps/AI Foundry\", workload \"AI: Foundry IQ and Search\", milestone comment \"Created for ongoing Apps/AI Foundry work with City of Fort Worth, targeting FY27 Q3 close.\" Vijay systemuserid for task writes = cfde6d88-42a0-f011-b41c-6045bded2ec3."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "g10",
+      "query": "Portland GCC security engagement",
+      "expect_pages": [
+        "Topic - City of Portland - GCC AI and Security Engagement"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "g11",
+      "query": "County San Luis Obispo Dev Box",
+      "expect_pages": [
+        "County of San Luis Obispo"
+      ],
+      "expect_facts": [
+        "Dev Box not available in GCC. County of San Luis Obispo requested Dev Box for developer VMs (AVD-style). Directed to Windows 365 Frontline — which is ALSO not available in GCC. Double gap."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "g12",
+      "query": "M365 GCC Fabric availability",
+      "expect_pages": [
+        "Microsoft Fabric"
+      ],
+      "expect_facts": [
+        "Microsoft Fabric is NOT generally available in GCC as of Q3 FY26. Estimated GA: late 2026. Vijay is quota'd for Apps+AI motion that requires Fabric to demo/sell."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "g13",
+      "query": "Copilot Agents GCC",
+      "expect_pages": [
+        "M365 Copilot Agents (Agent365)"
+      ],
+      "expect_facts": [
+        "Copilot Agents (Agent365) / extensibility features not available in GCC. Part of the Apps+AI bucket Vijay is tasked with. No workaround available."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "g14",
+      "query": "Enghouse API Management OAuth gateway",
+      "expect_pages": [
+        "Azure API Management — MCP, OAuth & AI Gateway"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "g15",
+      "query": "APIM v2 tiers feature",
+      "expect_pages": [
+        "Azure API Management — v2 Tiers Feature Matrix"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "g16",
+      "query": "Linn County GIS Azure cost estimate",
+      "expect_pages": [
+        "Linn County GIS Analytics on Azure - Cost Estimate (Source-Cited)"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "g02",
+      "query": "isn't content understanding better than document intelligence? why are you suggesting document intelligence or form recognizer when there are better fidelity options?",
+      "expect_pages": [
+        "Content Understanding 2026 - talk track, cost model and the Mistral answer"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g03",
+      "query": "How to verify with GET /defaults if mini model was used?",
+      "expect_pages": [
+        "Research SAIF CU — GET defaults Response Analysis + Chu Draft"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g04",
+      "query": "The blocker is the new leadership hesitating on the cost of backlog and ongoing processing of claims. Backlog sits at 65MM+.",
+      "expect_pages": [
+        "SAIF (TPID 20847298) — Foundry OCR options for the 65M-document OnBase backfill"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g17",
+      "query": "how is memory handled between various sessions? Do we have persistent memory?",
+      "expect_pages": [
+        "Vault Guide"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g18",
+      "query": "Does Microsoft Hosted Network allow access to PCs in her network? Is it a separate setup?",
+      "expect_pages": [
+        "Hosted Network"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g19",
+      "query": "Why suggest databricks when ArcGIS Pro/ Enterprise can do the job? Is it any different than using the spatial join using GlobalMLBuildingFootprints?",
+      "expect_pages": [
+        "Linn County GIS Analytics on Azure - Cost Estimate (Source-Cited)"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g20",
+      "query": "My recent applications to Strategic Account Technologist role got rejected as well - granted it was specific to a different city, however I thought there would be some sort of contact from the hiring manager but seemingly got rejected without any contact. What can be done to help get some feedback on why?",
+      "expect_pages": [
+        "Microsoft internal application rejections - the 11-day screening pattern"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g21",
+      "query": "apart from the commercials associated with the aco benefit, keeping it secondary - highlight on the technical win of unified platform and other advantages Azure Databricks brings",
+      "expect_pages": [
+        "Azure Databricks vs. Databricks on AWS — seller brief for SAIF (TPID 20847298)",
+        "Moving Databricks off AWS is a governance argument, and eleven of the obvious pi"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g22",
+      "query": "can you run from vj-agency vault to extract to TeamBrain vault that is common for the team?",
+      "expect_pages": [
+        "team-brain-publish — promote a card from your vault to the team"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g26",
+      "query": "does custom model weights mean finetuned like lora trained models that are in safetensors format?",
+      "expect_pages": [
+        "Content Understanding 2026 - talk track, cost model and the Mistral answer"
+      ],
+      "expect_facts": [
+        "CONTENT UNDERSTANDING MODEL + REGION CONSTRAINTS - VERIFIED 2026-08-24 vs MS Learn. MODELS: CU calls a Foundry model deployment you own but ONLY from a CLOSED supported list - gpt-5.5/5.4/5.4-mini/5.2/5.1/5/5-mini/5-nano, gpt-4.1/mini/nano (RETIRING Oct 2026), gpt-4o/gpt-4o-mini, plus embeddings text-embedding-3-small/-large/ada-002. MISTRAL, LLAMA, PHI AND CUSTOM WEIGHTS ARE NOT SUPPORTED - never tell a customer they can plug in any model. What IS controllable: which supported model, deployment type (Global/DataZone/Regional), PAYG vs PTU. Needing Mistral means the \"build your own on Foundry models\" path, giving up industry OCR, built-in confidence/grounding, managed scaling and model lifecycle. REGIONS: CU is available in australiaeast, eastus, eastus2, japaneast, northeurope, southcentralus, southeastasia, swedencentral, uksouth, westeurope, westus, westus3. CRITICAL PUBLIC SECTOR NUANCE: the Foundry sovereign-clouds region page lists Content Understanding under UNSUPPORTED FEATURES for Azure Government (US Gov Arizona/Virginia). But M365 GCC customers use COMMERCIAL Azure, so CU IS available to them; only GCC-High and DoD, which sit in Azure Government, cannot use it. Establish which cloud before scoping. VERSIONS: GA = 2025-11-01; 2026-06-01-preview carries the Build 2026 wave (agentic mode, signature detection, document metadata, in-page segmentation) with no SLA. SDKs went GA Mar 2026 for Python/.NET/Java/JS with built-in LRO polling - this directly replaces hand-rolled poll loops that amplify throttling."
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g27",
+      "query": "what happened to my active context info I had asked to keep track of while implementation? Where did it save?",
+      "expect_pages": [
+        "How to use the vault - cheat sheet"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g28",
+      "query": "followup.. investigate on GCC availability for Teams Phones",
+      "expect_pages": [
+        "Teams Phone"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g29",
+      "query": "GCC Entra is in GCC enclave - not commercial?? - but rest of AZ infra is the same in commercial. The cross-cloud framing requires validation. Are you reading the schematic right??",
+      "expect_pages": [
+        "GCC Azure Architecture — Reference for Customer Emails",
+        "M365 GCC customers use commercial Azure, not Azure Government"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g30",
+      "query": "i need a short message not verbose. Just that if GCC customer chooses to use claude hosted on azure + datazone standard - that might be a recommended approach",
+      "expect_pages": [
+        "Topic - Gcc Architecture",
+        "Selecting Claude in GitHub Copilot makes Anthropic the data processor, not Micro",
+        "A deputy CIO asked where Claude sends the data, and the answer was two settings"
+      ],
+      "expect_facts": [
+        "Claude in Foundry ZDR: No separate Zero Data Retention agreement needed with Anthropic. DPA + Commercial ToS are accepted automatically via Azure Marketplace subscription flow. Compliance row in hosting comparison just points to Anthropic Trust Center for cert verification (SOC 2 etc). Anthropic is independent data processor for BOTH hosting options. Key nuance: flagged content may be reviewed by Anthropic Trust & Safety even on Azure-hosted. For max data residency: choose Hosted on Azure + Data Zone Standard (US). Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models-hosting-comparison"
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g31",
+      "query": "remember-this and draft a correction with link on ZDR for the GCC customer I can paste in Teams",
+      "expect_pages": [
+        "Zero Data Retention (ZDR) Terminology & Documented Process for OpenAI and Claude"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g32",
+      "query": "Cover Azure OpenAI vs Voice Live vs MAI models along with cost and licensing component tailored for gcc.use ms-learn and github mcp for additional info",
+      "expect_pages": [
+        "Topic - GCC Product Parity Gaps — FY26"
+      ],
+      "expect_facts": [
+        "Voice Live API, Azure OpenAI Realtime API, LLM Speech, and MAI models are NOT available in Azure Government (portal.azure.us). They ARE available in commercial Azure (portal.azure.com) which GCC customers can use. Traditional STT/TTS is the only path that works in both clouds."
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g33",
+      "query": "explain to me - not for draft- TLDR pointed explainers in schematic if possible - 1. How to switch CU from 4.1 to 4.1 mini?",
+      "expect_pages": [
+        "For Content Understanding cost, the analyzer choice beats the model choice"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g35",
+      "query": "Do they still need to sign ZDR with Anthropic as it claims - Compliance    Refer to Anthropic Trust Center. Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models-hosting-comparison",
+      "expect_pages": [
+        "Selecting Claude in GitHub Copilot makes Anthropic the data processor, not Micro"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g36",
+      "query": "Researching: \"Can Github Enteprise and Github Copilot by the extension of licensing Github Enterprise is CJIS compliant?Does the agreement guarantee data residency in US and not being used for training or availability beyond their enterprise boundaries\"",
+      "expect_pages": [
+        "GitHub Copilot for GCC Customers — Research Reference",
+        "Topic - Gcc Product Availability"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "g34",
+      "query": "Also for GHCP and GCC it should state usability in non CJIS data - \"The product IS usable in non CJIS data within GCC via Copilot Data Residency, but every time GitHub's AE tells a customer \"not available,\" we lose the deal before architecture.\"",
+      "expect_pages": [
+        "Topic - Gcc Compliance"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "g23",
+      "query": "County San Luis Obispo Frontline",
+      "expect_pages": [
+        "Windows 365 Frontline"
+      ],
+      "expect_facts": [
+        "Dev Box not available in GCC. County of San Luis Obispo requested Dev Box for developer VMs (AVD-style). Directed to Windows 365 Frontline — which is ALSO not available in GCC. Double gap."
+      ],
+      "class": "multihop"
+    },
+    {
+      "id": "g24",
+      "query": "Fort Worth Foundry workflow retirement",
+      "expect_pages": [
+        "Foundry Workflows designer retires 1 December 2026, but the YAML survives"
+      ],
+      "expect_facts": [],
+      "class": "multihop"
+    },
+    {
+      "id": "g25",
+      "query": "SAIF Databricks claims platform",
+      "expect_pages": [
+        "SAIF — The Integrated Claims Platform Argument"
+      ],
+      "expect_facts": [
+        "SAIF Monthly Azure Sync May 7 2026 covered: (1) Azure Infrastructure: Jun manages site-to-site VPN between Azure/on-prem and Azure/AWS, dynamic routing active-active, Azure advertises on-prem routes to AWS (managed internally). Akanksha offered to investigate alternatives. (2) AI Claims Processing POC: nearing completion pending mgmt approval. Vijay collaborating with Ramesh on cost structuring. Using managed AI service instances across multiple regions. Load testing done, recommended dedicated instances for prod. Brian raised volume/overload concerns. Strategies: exponential backoff, queuing, batch processing, schema definition for cost reduction. (3) App Modernization: Brian building internal developer platform on Azure — web apps, APIs, Front Door, APM, App Services, async eventing, Service Bus, Key Vault, app config. Migrating legacy Windows IIS.NET apps. Using Terraform modules + multiple Azure subscriptions. (4) Data Analytics: Oracle enterprise DB, Databricks in AWS, Fivetran+DBT for data movement. Planning Cosmos DB + Databricks integration. AWS chosen for Databricks due to departmental decisions. Tiffany suggested Azure Data Factory for ETL/governance. (5) GitHub Copilot: licensing challenges through resellers, token-based billing changes upcoming. Next meeting rescheduled to June 10."
+      ],
+      "class": "multihop"
+    },
+    {
+      "id": "gcc-zdr",
+      "query": "ZDR for the GCC customer - what is the documented process?",
+      "expect_pages": [
+        "Zero Data Retention (ZDR) Terminology & Documented Process for OpenAI and Claude"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "gcc-ghcopilot",
+      "query": "Can GitHub Copilot be used in GCC?",
+      "expect_pages": [
+        "GitHub Copilot for GCC Customers — Research Reference"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "gcc-ghcopilot-paraphrase",
+      "query": "can our developers use the AI coding assistant in our government tenant?",
+      "expect_pages": [
+        "GitHub Copilot for GCC Customers — Research Reference"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "gcc-parity",
+      "query": "what are the GCC product parity gaps",
+      "expect_pages": [
+        "Topic - GCC Product Parity Gaps — FY26",
+        "Topic - Gcc Product Availability"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "gcc-devbox",
+      "query": "is Dev Box available for our GCC developers?",
+      "expect_pages": [
+        "Topic - GCC Product Parity Gaps — FY26",
+        "County of San Luis Obispo"
+      ],
+      "expect_facts": [
+        "Dev Box not available in GCC. County of San Luis Obispo requested Dev Box for developer VMs (AVD-style). Directed to Windows 365 Frontline — which is ALSO not available in GCC. Double gap."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "gcc-agentp3",
+      "query": "is the Agent Pre-Purchase Plan available in GCC?",
+      "expect_pages": [
+        "Topic - GCC Product Parity Gaps — FY26"
+      ],
+      "expect_facts": [
+        "CORRECTION (verified 2026-06-24): Microsoft Agent P3 IS available for GCC -- Agent P3 Field FAQ Q12: 'Microsoft Agent P3 is available in Fairfax and public cloud' (Fairfax=Azure Gov, public=commercial). Only the separate GitHub P3 / GitHub AI Credit P3 offers are NOT in GCC (GitHub P3 FAQ Q18). Agent P3 already bundles GitHub Copilot consumption. Authoritative doc: 'Microsoft Agent Pre-Purchase Plan - Field FAQ' = https://microsoft.seismic.com/Link/Content/DCX6QJ7BCqXb9G4M78MVpCJCfVQj. Also: Agent 365 NOT included in Agent P3; out-of-scope = Foundry PTU RI, 3P/MaaS, GPU VMs, Dataverse."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "gcc-copilotstudio-trial",
+      "query": "why won't Copilot Studio let us start a trial in our GCC tenant?",
+      "expect_pages": [
+        "Topic - GCC Product Parity Gaps — FY26",
+        "Copilot Studio"
+      ],
+      "expect_facts": [
+        "Copilot Studio trials are disabled/non-functional in GCC government tenants. The empty Country/Region dropdown and looping behavior is expected. Attempting trial activation can create a viral trial license that CONFLICTS with paid licenses and blocks publishing."
+      ],
+      "class": "local"
+    },
+    {
+      "id": "cu-costlever",
+      "query": "for Content Understanding cost, which lever actually matters?",
+      "expect_pages": [
+        "Content Understanding cost - which lever actually matters",
+        "For Content Understanding cost, the analyzer choice beats the model choice"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "cu-checkbox",
+      "query": "Content Understanding is not reporting unchecked boxes in table cells",
+      "expect_pages": [
+        "Content Understanding does not report unchecked boxes inside table cells",
+        "Content Understanding 2026-06-01-preview - SAIF checkbox root cause, the agentic"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "cu-meter",
+      "query": "does prebuilt-read bill the basic or the standard OCR meter?",
+      "expect_pages": [
+        "Content Understanding prebuilt-read bills the basic OCR meter, not standard",
+        "Topic - Content Understanding Pricing"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "cu-mistral",
+      "query": "can I use Mistral with Content Understanding?",
+      "expect_pages": [
+        "Content Understanding 2026 - talk track, cost model and the Mistral answer"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "cu-legalrag",
+      "query": "AI Search vs Content Understanding for legal document RAG",
+      "expect_pages": [
+        "Enabling RAG for Legal Documents AI Search vs. Content Understanding Route"
+      ],
+      "expect_facts": [],
+      "class": "local"
+    },
+    {
+      "id": "gcc-backbone",
+      "query": "Azure GCC runs on the commercial backbone - is there cross cloud?",
+      "expect_pages": [
+        "M365 GCC customers use commercial Azure, not Azure Government",
+        "GCC Azure Architecture — Reference for Customer Emails",
+        "Topic - Gcc Architecture"
+      ],
+      "expect_facts": [
+        "CRITICAL ARCHITECTURE RULE: M365 GCC customers use COMMERCIAL Azure (portal.azure.com) for ALL Azure services. GCC is NOT a separate or restricted Azure cloud. All commercial Azure services (Azure AI Foundry, Azure OpenAI, full model catalog, AKS, App Service, etc.) are available to GCC customers. Only M365 GCC platform-layer gaps (Fabric, Dev Box, Agent365) are true gaps. GCC-High/DOD use Azure Government (portal.azure.us) which IS a separate cloud. Reference schematic: C:\\workspace\\agency\\research\\Azure GCC.png"
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "gcc-entra",
+      "query": "GCC Entra is in the GCC enclave, not commercial - does the rest of Azure stay commercial?",
+      "expect_pages": [
+        "M365 GCC customers use commercial Azure, not Azure Government",
+        "Topic - Gcc Architecture",
+        "GCC Azure Architecture — Reference for Customer Emails"
+      ],
+      "expect_facts": [
+        "GCC cross-cloud framing: NEVER call GCC Entra to Commercial Azure \"cross-cloud\" — both are on the public/commercial platform. The actual cross-cloud boundary is Power Platform GCC backend (Azure Government) to customer Azure resources (Commercial Azure). Always use the three-layer model: (1) GCC Entra = public Entra platform with GCC enclave, (2) Power Platform GCC = Azure Government, (3) Customer Azure = Commercial. Validated via MS Learn CS-GCC + PA-GOV docs and Federal Business Apps repo. Vijay corrected this framing in the Lee Alvarez email session May 2026."
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "gcc-azuregov-need",
+      "query": "when would we genuinely need a separate Azure Government subscription instead of just using our GCC tenant's commercial Azure?",
+      "expect_pages": [
+        "M365 GCC customers use commercial Azure, not Azure Government"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "cu-modelswitch-trap",
+      "query": "why didn't switching Content Understanding to the mini model save us any money?",
+      "expect_pages": [
+        "Content Understanding cost - which lever actually matters",
+        "For Content Understanding cost, the analyzer choice beats the model choice",
+        "Topic - saif-cu-cost"
+      ],
+      "expect_facts": [],
+      "class": "paraphrase"
+    },
+    {
+      "id": "cu-billing-confusion",
+      "query": "why did our OCR bill jump even though we didn't change which model we were using?",
+      "expect_pages": [
+        "Topic - saif-cu-cost"
+      ],
+      "expect_facts": [
+        "CU billing has 3 separate systems: (1) Content Extraction ($5/1K pages via CU meter), (2) Contextualization ($1/1M tokens via CU meter), (3) LLM tokens (billed on YOUR Foundry deployment). For Ramesh 8K run: LLM was 98% of cost ($2,940), CU charges only $48. Contextualization is NOT the same as LLM inference."
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "cu-azuregov-trap",
+      "query": "our Azure Government customer wants Content Understanding for OCR - can we get it for them?",
+      "expect_pages": [
+        "Content Understanding 2026 - talk track, cost model and the Mistral answer",
+        "Topic - GCC Product Parity Gaps — FY26"
+      ],
+      "expect_facts": [
+        "CONTENT UNDERSTANDING MODEL + REGION CONSTRAINTS - VERIFIED 2026-08-24 vs MS Learn. MODELS: CU calls a Foundry model deployment you own but ONLY from a CLOSED supported list - gpt-5.5/5.4/5.4-mini/5.2/5.1/5/5-mini/5-nano, gpt-4.1/mini/nano (RETIRING Oct 2026), gpt-4o/gpt-4o-mini, plus embeddings text-embedding-3-small/-large/ada-002. MISTRAL, LLAMA, PHI AND CUSTOM WEIGHTS ARE NOT SUPPORTED - never tell a customer they can plug in any model. What IS controllable: which supported model, deployment type (Global/DataZone/Regional), PAYG vs PTU. Needing Mistral means the \"build your own on Foundry models\" path, giving up industry OCR, built-in confidence/grounding, managed scaling and model lifecycle. REGIONS: CU is available in australiaeast, eastus, eastus2, japaneast, northeurope, southcentralus, southeastasia, swedencentral, uksouth, westeurope, westus, westus3. CRITICAL PUBLIC SECTOR NUANCE: the Foundry sovereign-clouds region page lists Content Understanding under UNSUPPORTED FEATURES for Azure Government (US Gov Arizona/Virginia). But M365 GCC customers use COMMERCIAL Azure, so CU IS available to them; only GCC-High and DoD, which sit in Azure Government, cannot use it. Establish which cloud before scoping. VERSIONS: GA = 2025-11-01; 2026-06-01-preview carries the Build 2026 wave (agentic mode, signature detection, document metadata, in-page segmentation) with no SLA. SDKs went GA Mar 2026 for Python/.NET/Java/JS with built-in LRO polling - this directly replaces hand-rolled poll loops that amplify throttling."
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "gcc-powerplatform-trap",
+      "query": "does Power Platform for our GCC tenant run on the same commercial Azure as everything else?",
+      "expect_pages": [
+        "Topic - GCC Product Parity Gaps — FY26"
+      ],
+      "expect_facts": [
+        "Power Platform GCC (Copilot Studio, Power Automate, Dataverse) is deployed on Azure Government infrastructure (USGov Virginia/Texas) per MS Learn, while GCC Entra identity uses public Entra ID (login.microsoftonline.com) and customer Azure subscriptions are in Commercial Azure. Cross-cloud boundary is at infrastructure layer ONLY: Azure Gov (Power Platform) to Commercial Azure (customer resources). Identity is NOT cross-cloud. Source: learn.microsoft.com Copilot Studio GCC + Power Apps US Government docs."
+      ],
+      "class": "paraphrase"
+    },
+    {
+      "id": "mh-cu-govregion",
+      "query": "our Azure Government public-sector prospect wants Content Understanding for OCR - do they need to move to M365 GCC, or is there another path?",
+      "expect_pages": [
+        "Content Understanding 2026 - talk track, cost model and the Mistral answer",
+        "M365 GCC customers use commercial Azure, not Azure Government"
+      ],
+      "expect_facts": [],
+      "class": "multihop"
+    },
+    {
+      "id": "mh-claude-foundry-gcc",
+      "query": "a GCC customer wants to deploy Claude in Foundry - is that even possible given GCC's cloud, and if so what does their compliance team need to know?",
+      "expect_pages": [
+        "Topic - Gcc Architecture",
+        "M365 GCC customers use commercial Azure, not Azure Government"
+      ],
+      "expect_facts": [],
+      "class": "multihop"
+    }
   ]
 }

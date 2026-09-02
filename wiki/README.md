@@ -32,7 +32,7 @@ The MCP server is the one that does not depend on retrieval luck:
 | `vault_file_answer` | file an analysis back as a durable page |
 
 ```powershell
-python test_vault_mcp.py   # drives the server over stdio as the harness does
+python .\wiki\test_vault_mcp.py   # drives the server over stdio as the harness does
 ```
 
 Standard library only, ~250 lines, no dependencies. Point it at another vault

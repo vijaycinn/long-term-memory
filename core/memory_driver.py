@@ -32,6 +32,53 @@ def _ensure_utf8_stdin():
 DEFAULT_DB = os.path.join(os.environ["USERPROFILE"], ".copilot", "memory.db")
 DEFAULT_CTX = os.path.join(os.environ["USERPROFILE"], ".copilot", "memory-context.md")
 
+# Relevance and importance are blended rather than one overriding the other.
+# Keep these values shared with vault_mcp so Search-Memory and memory_search
+# cannot silently diverge.
+RANK_WEIGHT = 0.7
+IMPORTANCE_WEIGHT = 0.3
+FTS_OVERFETCH = 4
+MIN_FTS_POOL = 40
+
+
+def score_fts_hit(bm25_rank, best, worst, importance=None):
+    """Return (blended_score, normalised_relevance) for one FTS candidate.
+
+    ⚠️ SIGN TRAP. SQLite's bm25() returns NEGATIVE scores and MORE NEGATIVE IS
+    BETTER, so callers order bm25_rank ASCENDING and this maps the *smallest*
+    raw value to 1.0. Flipping either one inverts relevance silently: results
+    still look plausible, so nothing fails loudly.
+
+    One row, or all ranks equal, has a zero span. Every such candidate is
+    explicitly treated as maximally relevant (1.0), leaving importance to break
+    the tie. Entities, topics, and snapshots have no importance column; they
+    deliberately contribute 0 rather than receiving an invented priority.
+    """
+    span = worst - best
+    rank_norm = ((worst - bm25_rank) / span) if span else 1.0
+    imp = min(max(importance or 0, 0), 5)
+    return (RANK_WEIGHT * rank_norm + IMPORTANCE_WEIGHT * (imp / 5.0),
+            rank_norm)
+
+
+def blend_fts_hits(rows, limit):
+    """Score an FTS candidate pool and retain deterministic database tie order."""
+    if not rows:
+        return []
+    ranks = [r["bm25_rank"] for r in rows]
+    best, worst = min(ranks), max(ranks)
+    out = []
+    for fts_order, row in enumerate(rows):
+        d = dict(row)
+        d["score"], d["rank_norm"] = score_fts_hit(
+            d["bm25_rank"], best, worst, d.get("importance"))
+        d["fts_order"] = fts_order
+        out.append(d)
+    # Ties fall back to the bm25 order the database already gave us, rather
+    # than depending on row arrival order.
+    out.sort(key=lambda d: (-d["score"], d["fts_order"]))
+    return out[:limit]
+
 
 def _db_path(payload):
     if payload and payload.get("db_path"):
@@ -291,23 +338,27 @@ def touch_topic(p):
 
 
 _RESOLVE_SQL = {
-    "facts": "SELECT id, content AS text, fact_type AS subtype FROM facts WHERE id IN (%s)",
-    "entities": "SELECT id, name || ' ' || COALESCE(notes,'') AS text, entity_type AS subtype "
-                "FROM entities WHERE id IN (%s)",
+    "facts": "SELECT id, content AS text, fact_type AS subtype, importance "
+             "FROM facts WHERE id IN (%s)",
+    "entities": "SELECT id, name || ' ' || COALESCE(notes,'') AS text, entity_type AS subtype, "
+                "NULL AS importance FROM entities WHERE id IN (%s)",
     "topics": "SELECT id, slug || ' ' || title || ' ' || COALESCE(description,'') AS text, "
-              "category AS subtype FROM topics WHERE id IN (%s)",
+              "category AS subtype, NULL AS importance FROM topics WHERE id IN (%s)",
     "snapshots": "SELECT id, COALESCE(summary,'') || ' ' || COALESCE(findings,'') AS text, "
-                 "NULL AS subtype FROM snapshots WHERE id IN (%s)",
+                 "NULL AS subtype, NULL AS importance FROM snapshots WHERE id IN (%s)",
 }
 
 
 def _run_match(conn, query, limit):
-    """Bounded FTS lookup, then resolve only the rows we actually matched.
+    """Overfetch FTS candidates, blend, then resolve only matched rows.
 
     The previous implementation joined memory_fts against the fts_resolved view,
     a 4-way UNION ALL over every row in the database, so a 10-row search grew
-    linearly with total size. Selecting hit ids first keeps resolution O(limit).
+    linearly with total size. Selecting hit ids first keeps resolution O(pool).
+    Overfetching before blending lets importance lift a relevant fact into the
+    requested results instead of only reshuffling an already-truncated top-N.
     """
+    pool = max(limit * FTS_OVERFETCH, MIN_FTS_POOL)
     hits = conn.execute(
         """
         SELECT row_id, table_name, bm25(memory_fts) AS rank
@@ -316,7 +367,7 @@ def _run_match(conn, query, limit):
         ORDER BY rank
         LIMIT ?
         """,
-        (query, limit),
+        (query, pool),
     ).fetchall()
     if not hits:
         return []
@@ -332,23 +383,26 @@ def _run_match(conn, query, limit):
             continue
         placeholders = ",".join("?" * len(ids))
         for row in conn.execute(sql % placeholders, ids):
-            resolved[(src, row["id"])] = (row["text"], row["subtype"])
+            resolved[(src, row["id"])] = (
+                row["text"], row["subtype"], row["importance"])
 
-    out = []
+    candidates = []
     for h in hits:
         key = (h["table_name"], h["row_id"])
         if key not in resolved:
             continue          # source row deleted but FTS entry lingered
-        text, subtype = resolved[key]
-        out.append({
+        text, subtype, importance = resolved[key]
+        candidates.append({
             "src": h["table_name"],
             "id": h["row_id"],
             "text": text,
             "content": text,   # alias: .content and .text both work
             "subtype": subtype,
             "rank": h["rank"],
+            "bm25_rank": h["rank"],
+            "importance": importance,
         })
-    return out
+    return blend_fts_hits(candidates, limit)
 
 
 def search_memory(p):
@@ -369,7 +423,8 @@ def search_memory(p):
     limit = p.get("limit", 10)
     raw_only = bool(p.get("raw", False))
 
-    with get_conn(_db_path(p)) as conn:
+    conn = get_conn(_db_path(p))
+    try:
         sanitized = False
         try:
             rows = _run_match(conn, query, limit)
@@ -385,6 +440,8 @@ def search_memory(p):
         for r in rows:
             r["sanitized"] = sanitized
         return rows
+    finally:
+        conn.close()
 
 
 def set_identity(p):
@@ -1136,4 +1193,3 @@ if __name__ == "__main__":
     except Exception as exc:
         print(json.dumps({"error": str(exc), "type": type(exc).__name__}))
         sys.exit(1)
-

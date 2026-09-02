@@ -10,9 +10,20 @@ design together, and how to extend it safely.
 | **Schema version** | **3** |
 | Driver ops | 15 |
 | PowerShell cmdlets | 26 |
-| Tests | **239** unittest across 11 files, plus 2 standalone harnesses |
+| Tests | **258** unittest across 13 files, plus 2 standalone harnesses |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
+
+---
+
+> **Two traps for the next agent.** Tool output redacts credential-adjacent
+> lines: `view`/`grep` can make `wiki/vault_embed.py`'s `Authorization` header
+> look like a literal placeholder even when the file on disk is correct. Do not
+> "fix" it from rendered output; inspect properties in Python (length, variable
+> names, or a hash) without printing the credential. Also, `_render_ranked`
+> right-aligns its `{marker:>10}` field, so result lines begin with spaces.
+> Parsers must allow leading whitespace; `line.startswith("[")` returns zero
+> results and produces a false benchmark.
 
 ---
 
@@ -38,6 +49,11 @@ design together, and how to extend it safely.
 **The bridge is the product.** Everything else exists so that
 `memory-context.md` contains the right ~40 facts at session start. Storage is
 cheap; *selection* is the hard part.
+
+The base repo is standard-library Python. `pyyaml` is the only repo-level
+third-party import and is guarded by `try/except` in
+`wiki/check_frontmatter.py`; `sqlite-vec` is an optional extension used only by
+the vector sidecar. Do not add a required dependency to the retrieval path.
 
 ### Data model
 
@@ -111,6 +127,79 @@ tools report and exit cleanly), `memory-only` (a full wiki from memory alone),
 `~/.copilot/wiki-config.json` → default, so nothing is machine-specific.
 Proven by `wiki/test_bootstrap.py`, which exercises all three in a temp
 directory.
+
+### Retrieval v4 surface
+
+`vault_read` accepts `hops=1`. It follows outbound `[[wikilink]]` edges and
+appends a `## Linked pages` block containing neighbour titles and one-line
+summaries, with inline body links before auto-generated `## Related` links.
+Neighbour bodies are not inlined. On the golden set, `hops=1` did not improve
+recall: direct search and `vault_current_hops1` both hit **18/27 (66.7%)** at
+recall@5. Treat it as an exploration aid, not a hit-rate improvement.
+
+`vault_search` accepts `mode` with these values:
+
+| Mode | Behaviour |
+|---|---|
+| `hybrid` | Default: BM25 plus vector results fused by RRF, then page-level reranked |
+| `hybrid-rrf` | Raw RRF order; bypasses the reranker |
+| `vector` | Vector-only page search |
+| `bm25` | Sidecar FTS5 BM25 page search |
+| `lexical` | Frozen `str.count()` substring scorer; guaranteed offline fallback |
+
+Semantic modes are optional. Missing `sqlite-vec`, an empty index, an unset
+endpoint, a lapsed `az login`, or another semantic-path failure degrades to
+`lexical`. The diagnostic is:
+
+```powershell
+python wiki\vault_vectors.py status
+az login
+```
+
+`wiki/vault_vectors.py` stores the sidecar at the path resolved by
+`config.paths()`, chunks cleaned pages at about **1,200 characters with 200
+characters of overlap**, invalidates by content hash, and caches query
+embeddings in `query_cache`. The remote embedding round trip measured about
+**650 ms of a ~667 ms hybrid p50**. The recorded scale is **7,940 chunks over
+619 pages**, **512 dimensions**, model `text-embedding-3-small`. Its CLI is:
+
+```powershell
+python wiki\vault_vectors.py status
+python wiki\vault_vectors.py search "content understanding cost" --limit 5
+```
+
+`index` (`python wiki\vault_vectors.py index`) rebuilds the shared live
+sidecar and embeds new or changed chunks; do not run it casually. `--quiet`
+suppresses progress. The CLI also exposes `--limit-pages N` on `index`; the
+current implementation deletes chunks outside a limited page set,
+so do not use `--limit-pages` against an existing sidecar; treat it as unsafe
+until the source issue is fixed.
+
+`wiki/vault_rerank.py` is stdlib-only and operates at page level over the
+fused candidate pool. It uses normalised RRF **0.60**, title coverage **0.20**,
+page semantic similarity from a precomputed chunk-vector centroid **0.08**,
+path-class prior **0.07**, dual-retriever corroboration **0.03**, and length
+normalisation **0.02**. `MIN_TITLE_COVERAGE = 0.50` returns raw RRF when no
+candidate has strong title evidence. The oracle artifact records **21/27
+(77.8%) Recall@20** for the fused candidate pool; six targets are outside that
+pool, so no reranker can retrieve them. Paraphrase recall@5 remains **3/11
+(27.3%)**.
+
+`Search-Memory` and MCP `memory_search` both use
+`core/memory_driver.py::score_fts_hit` and `blend_fts_hits`, so their result
+ordering is identical. This resolves the former driver-versus-MCP divergence
+where the driver was pure BM25 and MCP blended importance.
+
+`ops/backfill_entity_mentions.py` has `--dry-run` and `--apply`. It backfills
+fact-to-entity edges without changing facts; `--apply` backs up before
+inserting. Run it because `memory_search` returns no `related_facts` on a
+database that has never had the backfill (or session-end edge capture) run.
+
+`ops/retrieval_bench.py` supports `--baseline OUT.json`, `--compare A.json
+B.json`, `--oracle`, `--paths` and `--json`. Strategies are `lexical_v0`,
+`memory_v0`, `vault_current`, `memory_current` and `vault_current_hops1`.
+`--oracle` measures the fused candidate-pool ceiling and writes
+`docs\bench\oracle-ceiling-2026-09-02.json`.
 
 Entirely optional. When the wiki layer is absent every entry point is a no-op,
 and the sessionEnd hook is best-effort — a wiki failure can never break the hook
@@ -307,7 +396,9 @@ through `_md_inline`, and return a `*_loaded` count. Assert the section in
 
 ```powershell
 $env:PYTHONIOENCODING = "utf-8"
-python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
+python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -t tests
+python wiki\test_bootstrap.py
+python wiki\test_vault_mcp.py
 ```
 
 | File | Tests | Covers |
@@ -315,15 +406,17 @@ python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
 | `test_memory_driver.py` | 71 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
-| `test_vault_vectors.py` | 28 | Boilerplate stripping, chunking, content hashing, FTS sanitising, RRF fusion and degradation |
-| `test_vault_embed.py` | 14 | Token expiry states, the `az login` nudge, every embed fallback path |
-| `test_vault_mcp_rank.py` | 15 | **bm25 sign trap** (mutation-tested), rare-term ranking, candidate-pool direction, entity co-mention caps, `hops=0` byte-identity |
+| `test_vault_vectors.py` | 36 | Boilerplate stripping, chunking, content hashing, FTS sanitising, RRF fusion and degradation |
+| `test_vault_embed.py` | 15 | Token expiry states, the `az login` nudge, every embed fallback path |
+| `test_vault_mcp_rank.py` | 17 | **bm25 sign trap** (mutation-tested), rare-term ranking, candidate-pool direction, entity co-mention caps, `hops=0` byte-identity |
+| `test_vault_rerank.py` | 4 | Page-level reranking signals, title guard, stable ordering and failure fallback |
+| `test_backfill_entity_mentions.py` | 1 | Fact-level entity-edge backfill |
 | `test_lint.py` | 14 | Health checks |
 | `test_vault_sync.py` | 14 | Wiki bridge — sessionEnd hook, sync marker/lock/retry, incremental scoping |
 | `test_session_start.py` | 13 | sessionStart hook, incl. prompt-aware retrieval (empty/short/long/punctuation) |
-| `test_session_end.py` | 11 | sessionEnd hook, incl. fact-level entity edges |
-| `test_retrieval_bench.py` | 4 | Golden-set schema, recall/MRR arithmetic, compare deltas |
-| **Total** | **239** | |
+| `test_session_end.py` | 10 | sessionEnd hook, incl. fact-level entity edges |
+| `test_retrieval_bench.py` | 8 | Golden-set schema, recall/MRR arithmetic, compare deltas and oracle metrics |
+| **Total** | **258** | |
 
 Two standalone harnesses run outside `unittest`:
 
@@ -335,6 +428,3 @@ Two standalone harnesses run outside `unittest`:
 **A change to trigger definitions, `export_context`, or `search_memory` must be
 accompanied by a benchmark run.** The tests prove correctness; only the
 benchmark proves you did not reintroduce defect #9.
-
-
-

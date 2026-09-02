@@ -30,22 +30,22 @@ from pathlib import Path
 BUILD = Path(__file__).resolve().parent
 sys.path.insert(0, str(BUILD))
 import config
+CORE = BUILD.parent / "core"
+if str(CORE) not in sys.path:
+    sys.path.insert(0, str(CORE))
+from memory_driver import (
+    FTS_OVERFETCH,
+    IMPORTANCE_WEIGHT,
+    MIN_FTS_POOL,
+    RANK_WEIGHT,
+    blend_fts_hits,
+)
 
 VAULT = config.paths()["vault"]
 SUMMARY_RE = re.compile(r'''^summary:\s*(?:"(.*)"|'(.*)')\s*$''', re.M)
 PROTOCOL = "2024-11-05"
 
 # ── memory_search ranking ──────────────────────────────────────────────────
-# Relevance and importance are blended rather than one overriding the other.
-# Before this, the tool discarded bm25 entirely and ordered by importance DESC,
-# so a generic importance-5 fact outranked an exact match on a rare term — the
-# tool was effectively "show me my most important facts that happen to contain
-# this word". These are module constants so they can be tuned against a measured
-# benchmark instead of by taste; they must sum to 1.0.
-RANK_WEIGHT = 0.7          # weight on normalised bm25 relevance
-IMPORTANCE_WEIGHT = 0.3    # weight on importance/5
-FTS_OVERFETCH = 4          # candidates pulled per requested result
-MIN_FTS_POOL = 40          # floor on that pool, so small limits still blend
 RELATED_FACT_CAP = 5       # T1.3: entity-co-mention facts appended per search
 
 
@@ -166,9 +166,16 @@ def t_search(args):
             rows = vault_vectors.search(q, limit)
         elif mode == "bm25":
             rows = vault_vectors.search_bm25(q, limit)
+        elif mode == "hybrid-rrf":
+            rows = vault_vectors.search_hybrid(q, limit)
         else:
             mode = "hybrid"
-            rows = vault_vectors.search_hybrid(q, limit)
+            pool = vault_vectors.search_hybrid(q, max(limit, 20))
+            try:
+                import vault_rerank
+                rows = vault_rerank.rerank(q, pool, limit)
+            except Exception:                   # optional precision enhancement
+                rows = pool[:limit]
     except Exception as e:                       # noqa: BLE001 - see above
         print(f"[vault_mcp] {mode} search unavailable ({e}); using lexical.",
               file=sys.stderr)
@@ -527,19 +534,29 @@ def _fts_query(con, q: str, limit: int):
     # same value here, but relying on that is a trap for the next person to add
     # a weighted bm25() call.
     sql = """
-        SELECT f.id         AS fact_id,
-               f.content    AS content,
-               f.fact_type  AS kind,
+        SELECT m.row_id     AS id,
+               m.table_name AS src,
+               f.id         AS fact_id,
+               COALESCE(
+                   f.content,
+                   e.name || ' ' || COALESCE(e.notes, ''),
+                   tp.slug || ' ' || tp.title || ' ' || COALESCE(tp.description, ''),
+                   COALESCE(s.summary, '') || ' ' || COALESCE(s.findings, '')
+               )            AS content,
+               COALESCE(f.fact_type, e.entity_type, tp.category) AS kind,
                f.importance AS importance,
                f.source     AS source,
                f.created_at AS created_at,
                t.title      AS topic,
                bm25(memory_fts) AS bm25_rank
         FROM memory_fts m
-        JOIN facts f ON f.id = m.row_id AND m.table_name = 'facts'
+        LEFT JOIN facts f ON f.id = m.row_id AND m.table_name = 'facts'
         LEFT JOIN topics t ON t.id = f.topic_id
+        LEFT JOIN entities e ON e.id = m.row_id AND m.table_name = 'entities'
+        LEFT JOIN topics tp ON tp.id = m.row_id AND m.table_name = 'topics'
+        LEFT JOIN snapshots s ON s.id = m.row_id AND m.table_name = 'snapshots'
         WHERE memory_fts MATCH ?
-          AND COALESCE(f.status, 'active') = 'active'
+          AND (m.table_name != 'facts' OR COALESCE(f.status, 'active') = 'active')
         ORDER BY bm25_rank
         LIMIT ?
     """
@@ -557,39 +574,14 @@ def _fts_query(con, q: str, limit: int):
 
 
 def _blend(rows, limit: int) -> list[dict]:
-    """Combine relevance with importance into one ordering.
+    """Combine relevance with fact importance through the shared scorer.
 
-    ⚠️ SIGN TRAP. SQLite's bm25() returns NEGATIVE scores and MORE NEGATIVE IS
-    BETTER, so the SQL orders by bm25_rank ASCENDING and the normalisation below
-    maps the *smallest* raw value to 1.0. Flipping either one inverts relevance
-    silently: the tool still returns plausible-looking facts, so nothing fails
-    loudly. tests/test_vault_mcp_rank.py pins the direction with a rare-term
-    fixture — do not "simplify" this by sorting bm25 descending.
-
-    Degenerate cases are explicit rather than incidental:
-      * empty result set             -> []
-      * one row, or all ranks equal  -> span is 0, division impossible; every
-                                        result is treated as maximally relevant
-                                        (1.0) and importance breaks the tie.
+    Entities, topics, and snapshots have no importance field. The shared scorer
+    deliberately treats that absence as 0 rather than inventing a priority.
+    Its sign warning, degenerate handling, and deterministic tie-break are the
+    contract shared with Search-Memory.
     """
-    if not rows:
-        return []
-    ranks = [r["bm25_rank"] for r in rows]
-    best, worst = min(ranks), max(ranks)     # best is the most negative
-    span = worst - best
-    out: list[dict] = []
-    for i, r in enumerate(rows):
-        rank_norm = ((worst - r["bm25_rank"]) / span) if span else 1.0
-        imp = min(max(r["importance"] or 0, 0), 5)
-        d = dict(r)
-        d["rank_norm"] = rank_norm
-        d["score"] = RANK_WEIGHT * rank_norm + IMPORTANCE_WEIGHT * (imp / 5.0)
-        d["fts_order"] = i
-        out.append(d)
-    # Ties fall back to the bm25 order the database already gave us, so the
-    # result is deterministic rather than dependent on row arrival order.
-    out.sort(key=lambda d: (-d["score"], d["fts_order"]))
-    return out[:limit]
+    return blend_fts_hits(rows, limit)
 
 
 def _related_facts(con, hit_ids: list[int], limit: int = RELATED_FACT_CAP) -> list[dict]:
@@ -675,10 +667,11 @@ TOOLS = [
             "past decisions, what happened in an earlier session, GCC rules, MSX "
             "metric definitions, or how a system in this workspace works. "
             "Defaults to hybrid search (BM25 + embeddings fused by Reciprocal "
-            "Rank Fusion), which finds pages that paraphrase your wording rather "
-            "than repeating it. Falls back to lexical automatically if semantic "
-            "search is unavailable. Returns ranked pages with a one-line summary "
-            "each; follow up with vault_read."),
+            "Rank Fusion, then a local page-level precision reranker), which "
+            "finds pages that paraphrase your wording rather than repeating it. "
+            "Falls back to lexical automatically if semantic search is unavailable. "
+            "Returns ranked pages with a one-line summary each; follow up with "
+            "vault_read."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -686,10 +679,12 @@ TOOLS = [
                           "description": "Search terms, e.g. 'content understanding cost'"},
                 "limit": {"type": "integer", "description": "Max results (default 10)"},
                 "mode": {"type": "string",
-                         "enum": ["hybrid", "vector", "bm25", "lexical"],
+                         "enum": ["hybrid", "hybrid-rrf", "vector", "bm25", "lexical"],
                          "description": (
-                             "hybrid (default) fuses BM25 and embeddings — best "
-                             "overall. vector is pure semantic, best for "
+                             "hybrid (default) fuses BM25 and embeddings, then "
+                             "reranks its candidate pool. hybrid-rrf disables "
+                             "that optional rerank and returns raw RRF order. "
+                             "vector is pure semantic, best for "
                              "paraphrased wording. bm25 is keyword relevance, "
                              "fastest (~16 ms) and needs no network. lexical is "
                              "the original substring match, kept as the "

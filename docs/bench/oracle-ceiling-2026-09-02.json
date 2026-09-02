@@ -1,0 +1,1085 @@
+{
+  "format": 1,
+  "measured_at_utc": "2026-09-02T23:29:28Z",
+  "retrieval": "vault_vectors.search_hybrid(query, 20)",
+  "pool_size": 20,
+  "recall_definition": "page-only hit recall at the first five, ten, and twenty fused candidates",
+  "mrr_definition": "mean reciprocal rank of the first expected page within the first five results",
+  "expectations_used": "expect_pages only; expect_facts are intentionally ignored",
+  "golden_queries": 27,
+  "overall": {
+    "queries": 27,
+    "recall_at_5": {
+      "hits": 16,
+      "queries": 27,
+      "rate": 0.5925925925925926,
+      "percentage": 59.25925925925926
+    },
+    "recall_at_10": {
+      "hits": 19,
+      "queries": 27,
+      "rate": 0.7037037037037037,
+      "percentage": 70.37037037037037
+    },
+    "recall_at_20": {
+      "hits": 21,
+      "queries": 27,
+      "rate": 0.7777777777777778,
+      "percentage": 77.77777777777777
+    },
+    "mrr": 0.4506172839506173,
+    "reranker_headroom": {
+      "additional_hits": 5,
+      "queries": 27,
+      "rate": 0.18518518518518517,
+      "percentage_points": 18.51851851851852
+    }
+  },
+  "classes": {
+    "local": {
+      "queries": 13,
+      "recall_at_5": {
+        "hits": 11,
+        "queries": 13,
+        "rate": 0.8461538461538461,
+        "percentage": 84.61538461538461
+      },
+      "recall_at_10": {
+        "hits": 12,
+        "queries": 13,
+        "rate": 0.9230769230769231,
+        "percentage": 92.3076923076923
+      },
+      "recall_at_20": {
+        "hits": 13,
+        "queries": 13,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "mrr": 0.7371794871794872,
+      "reranker_headroom": {
+        "additional_hits": 2,
+        "queries": 13,
+        "rate": 0.15384615384615385,
+        "percentage_points": 15.384615384615385
+      }
+    },
+    "paraphrase": {
+      "queries": 11,
+      "recall_at_5": {
+        "hits": 2,
+        "queries": 11,
+        "rate": 0.18181818181818182,
+        "percentage": 18.181818181818183
+      },
+      "recall_at_10": {
+        "hits": 4,
+        "queries": 11,
+        "rate": 0.36363636363636365,
+        "percentage": 36.36363636363637
+      },
+      "recall_at_20": {
+        "hits": 5,
+        "queries": 11,
+        "rate": 0.45454545454545453,
+        "percentage": 45.45454545454545
+      },
+      "mrr": 0.11363636363636363,
+      "reranker_headroom": {
+        "additional_hits": 3,
+        "queries": 11,
+        "rate": 0.2727272727272727,
+        "percentage_points": 27.272727272727273
+      }
+    },
+    "multihop": {
+      "queries": 3,
+      "recall_at_5": {
+        "hits": 3,
+        "queries": 3,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "recall_at_10": {
+        "hits": 3,
+        "queries": 3,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "recall_at_20": {
+        "hits": 3,
+        "queries": 3,
+        "rate": 1.0,
+        "percentage": 100.0
+      },
+      "mrr": 0.4444444444444444,
+      "reranker_headroom": {
+        "additional_hits": 0,
+        "queries": 3,
+        "rate": 0.0,
+        "percentage_points": 0.0
+      }
+    }
+  },
+  "misses": [
+    {
+      "id": "g03",
+      "query": "which setting ignored the small language model swap",
+      "expected_pages": [
+        "Research SAIF CU \u2014 GET defaults Response Analysis + Chu Draft"
+      ],
+      "actual_top20": [
+        {
+          "rank": 1,
+          "path": "04-Tech/For Content Understanding cost, the analyzer choice beats the model choice.md",
+          "sources": [
+            "bm25#1",
+            "vector#4"
+          ]
+        },
+        {
+          "rank": 2,
+          "path": "05-Knowledge/Learnings/Learnings - finding.md",
+          "sources": [
+            "bm25#3",
+            "vector#8"
+          ]
+        },
+        {
+          "rank": 3,
+          "path": "04-Tech/Implementation Plan \u2014 Retrieval v4.md",
+          "sources": [
+            "bm25#19",
+            "vector#6"
+          ]
+        },
+        {
+          "rank": 4,
+          "path": "04-Tech/The analyzer switch saves about 90 percent, not 98-99 - and the headline bill ha.md",
+          "sources": [
+            "bm25#6",
+            "vector#13"
+          ]
+        },
+        {
+          "rank": 5,
+          "path": "04-Tech/Frontier SE \u2014 App User Guide.md",
+          "sources": [
+            "bm25#54",
+            "vector#3"
+          ]
+        },
+        {
+          "rank": 6,
+          "path": "05-Knowledge/Topics/Topic - personal-memory.md",
+          "sources": [
+            "bm25#4",
+            "vector#14"
+          ]
+        },
+        {
+          "rank": 7,
+          "path": "05-Knowledge/Topics/Topic - GCC Product Parity Gaps \u2014 FY26.md",
+          "sources": [
+            "bm25#55",
+            "vector#5"
+          ]
+        },
+        {
+          "rank": 8,
+          "path": "05-Knowledge/Learnings/Learnings - constraint.md",
+          "sources": [
+            "bm25#50",
+            "vector#7"
+          ]
+        },
+        {
+          "rank": 9,
+          "path": "02-People/Accounts/SAIF.md",
+          "sources": [
+            "bm25#33",
+            "vector#11"
+          ]
+        },
+        {
+          "rank": 10,
+          "path": "04-Tech/Digest - digest.md",
+          "sources": [
+            "bm25#5",
+            "vector#24"
+          ]
+        },
+        {
+          "rank": 11,
+          "path": "10-Synthesis/Content Understanding cost - which lever actually matters.md",
+          "sources": [
+            "bm25#51",
+            "vector#12"
+          ]
+        },
+        {
+          "rank": 12,
+          "path": "05-Knowledge/Learnings/Learnings - decision.md",
+          "sources": [
+            "bm25#12",
+            "vector#25"
+          ]
+        },
+        {
+          "rank": 13,
+          "path": "05-Knowledge/Topics/Topic - GitHub Copilot Data Residency Playbook for SLG Public Sector.md",
+          "sources": [
+            "bm25#22",
+            "vector#26"
+          ]
+        },
+        {
+          "rank": 14,
+          "path": "05-Knowledge/Topics/Topic - Azure Ai Language.md",
+          "sources": [
+            "bm25#43",
+            "vector#22"
+          ]
+        },
+        {
+          "rank": 15,
+          "path": "03-Research/WebWright vs Playwright Research Brief for LinkedIn Post.md",
+          "sources": [
+            "bm25#21",
+            "vector#34"
+          ]
+        },
+        {
+          "rank": 16,
+          "path": "08-Skills/Skill - microsoft-agent-framework.md",
+          "sources": [
+            "bm25#14",
+            "vector#39"
+          ]
+        },
+        {
+          "rank": 17,
+          "path": "04-Tech/Map - map.md",
+          "sources": [
+            "bm25#25",
+            "vector#44"
+          ]
+        },
+        {
+          "rank": 18,
+          "path": "05-Knowledge/Topics/Topic - Tooling.md",
+          "sources": [
+            "vector#1"
+          ]
+        },
+        {
+          "rank": 19,
+          "path": "05-Knowledge/Topics/Topic - Default Model.md",
+          "sources": [
+            "vector#2"
+          ]
+        },
+        {
+          "rank": 20,
+          "path": "10-Synthesis/Foundry model catalogue - DeepSeek V4, Kimi, GLM and the portal-ahead-of-docs ru.md",
+          "sources": [
+            "bm25#16",
+            "vector#58"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g17",
+      "query": "how do I retain organizational knowledge in my assistant",
+      "expected_pages": [
+        "Vault Guide"
+      ],
+      "actual_top20": [
+        {
+          "rank": 1,
+          "path": "05-Knowledge/Learnings/Learnings - preference.md",
+          "sources": [
+            "bm25#8",
+            "vector#1"
+          ]
+        },
+        {
+          "rank": 2,
+          "path": "05-Knowledge/Topics/Topic - personal-memory.md",
+          "sources": [
+            "bm25#7",
+            "vector#2"
+          ]
+        },
+        {
+          "rank": 3,
+          "path": "05-Knowledge/Learnings/Learnings - finding.md",
+          "sources": [
+            "bm25#4",
+            "vector#6"
+          ]
+        },
+        {
+          "rank": 4,
+          "path": "index.md",
+          "sources": [
+            "bm25#36",
+            "vector#5"
+          ]
+        },
+        {
+          "rank": 5,
+          "path": "05-Knowledge/Knowledge MOC.md",
+          "sources": [
+            "bm25#56",
+            "vector#3"
+          ]
+        },
+        {
+          "rank": 6,
+          "path": "05-Knowledge/Learnings/Learnings - constraint.md",
+          "sources": [
+            "bm25#55",
+            "vector#4"
+          ]
+        },
+        {
+          "rank": 7,
+          "path": "05-Knowledge/Learnings/Learnings - decision.md",
+          "sources": [
+            "bm25#49",
+            "vector#9"
+          ]
+        },
+        {
+          "rank": 8,
+          "path": "04-Tech/Long-Term Memory for Copilot CLI, the Copilot app and Scout.md",
+          "sources": [
+            "bm25#59",
+            "vector#8"
+          ]
+        },
+        {
+          "rank": 9,
+          "path": "01-Activity/Sessions/Work Log 2026-08.md",
+          "sources": [
+            "bm25#16",
+            "vector#20"
+          ]
+        },
+        {
+          "rank": 10,
+          "path": "05-Knowledge/Learnings/Learnings - insight.md",
+          "sources": [
+            "bm25#31",
+            "vector#16"
+          ]
+        },
+        {
+          "rank": 11,
+          "path": "05-Knowledge/Topics/Topic - Team Second Brain - Federated Knowledge Exchange.md",
+          "sources": [
+            "bm25#45",
+            "vector#14"
+          ]
+        },
+        {
+          "rank": 12,
+          "path": "01-Activity/Sessions/Sessions 2026-08.md",
+          "sources": [
+            "bm25#1",
+            "vector#35"
+          ]
+        },
+        {
+          "rank": 13,
+          "path": "04-Tech/TeamBrain.md",
+          "sources": [
+            "bm25#47",
+            "vector#24"
+          ]
+        },
+        {
+          "rank": 14,
+          "path": "01-Activity/Sessions/Work Log 2026-03.md",
+          "sources": [
+            "bm25#33",
+            "vector#31"
+          ]
+        },
+        {
+          "rank": 15,
+          "path": "04-Tech/Team knowledge base \u2014 how to use this repository.md",
+          "sources": [
+            "bm25#60",
+            "vector#26"
+          ]
+        },
+        {
+          "rank": 16,
+          "path": "05-Knowledge/Learnings/Learnings - action.md",
+          "sources": [
+            "vector#7"
+          ]
+        },
+        {
+          "rank": 17,
+          "path": "04-Tech/Long-Term Memory \u2014 Implementation Plan.md",
+          "sources": [
+            "vector#10"
+          ]
+        },
+        {
+          "rank": 18,
+          "path": "04-Tech/Long-Term Memory System \u2014 Plan.md",
+          "sources": [
+            "vector#11"
+          ]
+        },
+        {
+          "rank": 19,
+          "path": "04-Tech/Copilot Long-Term Memory Context.md",
+          "sources": [
+            "vector#12"
+          ]
+        },
+        {
+          "rank": 20,
+          "path": "04-Tech/Copilot Long-Term Memory Context (2).md",
+          "sources": [
+            "vector#13"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g18",
+      "query": "why is the wiki behaving like find-in-page",
+      "expected_pages": [
+        "I built a knowledge graph and never traverse it - vault retrieval audit"
+      ],
+      "actual_top20": [
+        {
+          "rank": 1,
+          "path": "04-Tech/Phase 2 gate \u2014 retrieval v4.md",
+          "sources": [
+            "bm25#1",
+            "vector#6"
+          ]
+        },
+        {
+          "rank": 2,
+          "path": "05-Knowledge/Learnings/Learnings - preference.md",
+          "sources": [
+            "vector#1"
+          ]
+        },
+        {
+          "rank": 3,
+          "path": "05-Knowledge/Topics/Topic - personal-memory.md",
+          "sources": [
+            "vector#2"
+          ]
+        },
+        {
+          "rank": 4,
+          "path": "05-Knowledge/Learnings/Learnings - finding.md",
+          "sources": [
+            "vector#3"
+          ]
+        },
+        {
+          "rank": 5,
+          "path": "04-Tech/AGENTS - AGENTS.md",
+          "sources": [
+            "vector#4"
+          ]
+        },
+        {
+          "rank": 6,
+          "path": "05-Knowledge/Topics/Topic - Tooling.md",
+          "sources": [
+            "vector#5"
+          ]
+        },
+        {
+          "rank": 7,
+          "path": "02-People/Internal/Kassie.md",
+          "sources": [
+            "vector#7"
+          ]
+        },
+        {
+          "rank": 8,
+          "path": "01-Activity/Sessions/Work Log 2026-08.md",
+          "sources": [
+            "vector#8"
+          ]
+        },
+        {
+          "rank": 9,
+          "path": "04-Tech/Index - index.md",
+          "sources": [
+            "vector#9"
+          ]
+        },
+        {
+          "rank": 10,
+          "path": "02-People/Accounts/SAIF.md",
+          "sources": [
+            "vector#10"
+          ]
+        },
+        {
+          "rank": 11,
+          "path": "04-Tech/Obsidian graph view needs wikilinks, frontmatter facets are not enough.md",
+          "sources": [
+            "vector#11"
+          ]
+        },
+        {
+          "rank": 12,
+          "path": "05-Knowledge/Learnings/Learnings - action.md",
+          "sources": [
+            "vector#12"
+          ]
+        },
+        {
+          "rank": 13,
+          "path": "04-Tech/How it works.md",
+          "sources": [
+            "vector#13"
+          ]
+        },
+        {
+          "rank": 14,
+          "path": "04-Tech/Digest - digest.md",
+          "sources": [
+            "vector#14"
+          ]
+        },
+        {
+          "rank": 15,
+          "path": "09-Reference/Library - Unsorted.md",
+          "sources": [
+            "vector#15"
+          ]
+        },
+        {
+          "rank": 16,
+          "path": "08-Skills/Skill - vault.md",
+          "sources": [
+            "vector#16"
+          ]
+        },
+        {
+          "rank": 17,
+          "path": "04-Tech/Team knowledge base \u2014 how to use this repository.md",
+          "sources": [
+            "vector#17"
+          ]
+        },
+        {
+          "rank": 18,
+          "path": "05-Knowledge/Topics/Topic - copilot-memory-system.md",
+          "sources": [
+            "vector#18"
+          ]
+        },
+        {
+          "rank": 19,
+          "path": "AGENTS.md",
+          "sources": [
+            "vector#19"
+          ]
+        },
+        {
+          "rank": 20,
+          "path": "04-Tech/A checkbox that would not extract, diagnosed as a documented limit.md",
+          "sources": [
+            "vector#20"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g19",
+      "query": "what cheap adjustment lets related notes participate in lookup",
+      "expected_pages": [
+        "I built a knowledge graph and never traverse it - vault retrieval audit"
+      ],
+      "actual_top20": [
+        {
+          "rank": 1,
+          "path": "04-Tech/Phase 2 gate \u2014 retrieval v4.md",
+          "sources": [
+            "bm25#1",
+            "vector#27"
+          ]
+        },
+        {
+          "rank": 2,
+          "path": "05-Knowledge/Learnings/Learnings - finding.md",
+          "sources": [
+            "vector#1"
+          ]
+        },
+        {
+          "rank": 3,
+          "path": "05-Knowledge/Learnings/Learnings - preference.md",
+          "sources": [
+            "vector#2"
+          ]
+        },
+        {
+          "rank": 4,
+          "path": "05-Knowledge/Topics/Topic - saif-cu-cost.md",
+          "sources": [
+            "vector#3"
+          ]
+        },
+        {
+          "rank": 5,
+          "path": "index.md",
+          "sources": [
+            "vector#4"
+          ]
+        },
+        {
+          "rank": 6,
+          "path": "05-Knowledge/Learnings/Learnings - constraint.md",
+          "sources": [
+            "vector#5"
+          ]
+        },
+        {
+          "rank": 7,
+          "path": "04-Tech/MSX Dataverse Constants.md",
+          "sources": [
+            "vector#6"
+          ]
+        },
+        {
+          "rank": 8,
+          "path": "05-Knowledge/Topics/Topic - personal-memory.md",
+          "sources": [
+            "vector#7"
+          ]
+        },
+        {
+          "rank": 9,
+          "path": "04-Tech/SE Activity \u2014 MSX Activity Logger.md",
+          "sources": [
+            "vector#8"
+          ]
+        },
+        {
+          "rank": 10,
+          "path": "04-Tech/Copilot Long-Term Memory Context (2).md",
+          "sources": [
+            "vector#9"
+          ]
+        },
+        {
+          "rank": 11,
+          "path": "04-Tech/MSX Write Operations.md",
+          "sources": [
+            "vector#10"
+          ]
+        },
+        {
+          "rank": 12,
+          "path": "05-Knowledge/Learnings/Learnings - decision.md",
+          "sources": [
+            "vector#11"
+          ]
+        },
+        {
+          "rank": 13,
+          "path": "05-Knowledge/Topics/Topic - Team-Brain.md",
+          "sources": [
+            "vector#12"
+          ]
+        },
+        {
+          "rank": 14,
+          "path": "05-Knowledge/Topics/Topic - Tooling.md",
+          "sources": [
+            "vector#13"
+          ]
+        },
+        {
+          "rank": 15,
+          "path": "04-Tech/P06 Cost - P06_cost.md",
+          "sources": [
+            "vector#14"
+          ]
+        },
+        {
+          "rank": 16,
+          "path": "05-Knowledge/Topics/Topic - copilot-memory-system.md",
+          "sources": [
+            "vector#15"
+          ]
+        },
+        {
+          "rank": 17,
+          "path": "04-Tech/Copilot Long-Term Memory Context.md",
+          "sources": [
+            "vector#16"
+          ]
+        },
+        {
+          "rank": 18,
+          "path": "04-Tech/A checkbox that would not extract, diagnosed as a documented limit.md",
+          "sources": [
+            "vector#17"
+          ]
+        },
+        {
+          "rank": 19,
+          "path": "08-Skills/Skill - msx-write.md",
+          "sources": [
+            "vector#18"
+          ]
+        },
+        {
+          "rank": 20,
+          "path": "04-Tech/Long-Term Memory System \u2014 Plan.md",
+          "sources": [
+            "vector#19"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g22",
+      "query": "how do I publish an account insight to colleagues without sharing raw memory",
+      "expected_pages": [
+        "team-brain-publish \u2014 promote a card from your vault to the team"
+      ],
+      "actual_top20": [
+        {
+          "rank": 1,
+          "path": "04-Tech/Account research.md",
+          "sources": [
+            "bm25#4",
+            "vector#1"
+          ]
+        },
+        {
+          "rank": 2,
+          "path": "04-Tech/cx-research.md",
+          "sources": [
+            "bm25#14",
+            "vector#2"
+          ]
+        },
+        {
+          "rank": 3,
+          "path": "05-Knowledge/Topics/Topic - Team-Brain.md",
+          "sources": [
+            "bm25#11",
+            "vector#6"
+          ]
+        },
+        {
+          "rank": 4,
+          "path": "04-Tech/TeamBrain.md",
+          "sources": [
+            "bm25#28",
+            "vector#3"
+          ]
+        },
+        {
+          "rank": 5,
+          "path": "08-Skills/Skill - cx-research.md",
+          "sources": [
+            "bm25#3",
+            "vector#13"
+          ]
+        },
+        {
+          "rank": 6,
+          "path": "05-Knowledge/Learnings/Learnings - insight.md",
+          "sources": [
+            "bm25#2",
+            "vector#14"
+          ]
+        },
+        {
+          "rank": 7,
+          "path": "04-Tech/Long-Term Memory System \u2014 Plan.md",
+          "sources": [
+            "bm25#17",
+            "vector#10"
+          ]
+        },
+        {
+          "rank": 8,
+          "path": "04-Tech/Copilot Long-Term Memory Context (2).md",
+          "sources": [
+            "bm25#18",
+            "vector#19"
+          ]
+        },
+        {
+          "rank": 9,
+          "path": "05-Knowledge/Topics/Topic - Repo Privacy.md",
+          "sources": [
+            "bm25#51",
+            "vector#12"
+          ]
+        },
+        {
+          "rank": 10,
+          "path": "05-Knowledge/Topics/Topic - Account Alerts.md",
+          "sources": [
+            "bm25#41",
+            "vector#15"
+          ]
+        },
+        {
+          "rank": 11,
+          "path": "04-Tech/team-brain \u2014 consult before you assert, capture what you learn.md",
+          "sources": [
+            "bm25#32",
+            "vector#20"
+          ]
+        },
+        {
+          "rank": 12,
+          "path": "04-Tech/Long-Term Memory for Copilot CLI, the Copilot app and Scout.md",
+          "sources": [
+            "bm25#20",
+            "vector#26"
+          ]
+        },
+        {
+          "rank": 13,
+          "path": "05-Knowledge/Topics/Topic - copilot-memory-system.md",
+          "sources": [
+            "bm25#58",
+            "vector#17"
+          ]
+        },
+        {
+          "rank": 14,
+          "path": "index.md",
+          "sources": [
+            "bm25#31",
+            "vector#30"
+          ]
+        },
+        {
+          "rank": 15,
+          "path": "04-Tech/Team knowledge base \u2014 how to use this repository.md",
+          "sources": [
+            "bm25#7",
+            "vector#42"
+          ]
+        },
+        {
+          "rank": 16,
+          "path": "05-Knowledge/Learnings/Learnings - finding.md",
+          "sources": [
+            "bm25#40",
+            "vector#37"
+          ]
+        },
+        {
+          "rank": 17,
+          "path": "08-Skills/Skill - org-skills-export.md",
+          "sources": [
+            "bm25#9",
+            "vector#55"
+          ]
+        },
+        {
+          "rank": 18,
+          "path": "05-Knowledge/Topics/Topic - personal-memory.md",
+          "sources": [
+            "vector#4"
+          ]
+        },
+        {
+          "rank": 19,
+          "path": "08-Skills/Skill - territory-insights.md",
+          "sources": [
+            "bm25#46",
+            "vector#46"
+          ]
+        },
+        {
+          "rank": 20,
+          "path": "05-Knowledge/Topics/Topic - Team-Brain Disclosure Policy.md",
+          "sources": [
+            "vector#5"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "g27",
+      "query": "how do I keep an analysis from vanishing when the chat ends",
+      "expected_pages": [
+        "How to use the vault - cheat sheet"
+      ],
+      "actual_top20": [
+        {
+          "rank": 1,
+          "path": "04-Tech/Phase 2 gate \u2014 retrieval v4.md",
+          "sources": [
+            "bm25#1"
+          ]
+        },
+        {
+          "rank": 2,
+          "path": "04-Tech/long-term-memory \u2014 use what is already known, and record what is new.md",
+          "sources": [
+            "vector#1"
+          ]
+        },
+        {
+          "rank": 3,
+          "path": "01-Activity/Sessions/Work Log 2026-06.md",
+          "sources": [
+            "vector#2"
+          ]
+        },
+        {
+          "rank": 4,
+          "path": "01-Activity/Sessions/Sessions 2026-06.md",
+          "sources": [
+            "vector#3"
+          ]
+        },
+        {
+          "rank": 5,
+          "path": "01-Activity/Sessions/Work Log 2026-05.md",
+          "sources": [
+            "vector#4"
+          ]
+        },
+        {
+          "rank": 6,
+          "path": "04-Tech/Ai Community Deck Text.md",
+          "sources": [
+            "vector#5"
+          ]
+        },
+        {
+          "rank": 7,
+          "path": "01-Activity/Sessions/Sessions 2026-05.md",
+          "sources": [
+            "vector#6"
+          ]
+        },
+        {
+          "rank": 8,
+          "path": "05-Knowledge/Topics/Topic - personal-memory.md",
+          "sources": [
+            "vector#7"
+          ]
+        },
+        {
+          "rank": 9,
+          "path": "01-Activity/Sessions/Work Log 2026-08.md",
+          "sources": [
+            "vector#8"
+          ]
+        },
+        {
+          "rank": 10,
+          "path": "03-Research/Grafana dev \u2192 prod subscription migration \u2014 customer talk track.md",
+          "sources": [
+            "vector#9"
+          ]
+        },
+        {
+          "rank": 11,
+          "path": "05-Knowledge/Learnings/Learnings - action.md",
+          "sources": [
+            "vector#10"
+          ]
+        },
+        {
+          "rank": 12,
+          "path": "01-Activity/Sessions/Sessions 2026-04.md",
+          "sources": [
+            "vector#11"
+          ]
+        },
+        {
+          "rank": 13,
+          "path": "07-Tasks/Open Loops.md",
+          "sources": [
+            "vector#12"
+          ]
+        },
+        {
+          "rank": 14,
+          "path": "08-Skills/Skill - self-learn.md",
+          "sources": [
+            "vector#13"
+          ]
+        },
+        {
+          "rank": 15,
+          "path": "01-Activity/Sessions/Sessions 2026-08.md",
+          "sources": [
+            "vector#14"
+          ]
+        },
+        {
+          "rank": 16,
+          "path": "01-Activity/Sessions/Sessions 2026-09.md",
+          "sources": [
+            "vector#15"
+          ]
+        },
+        {
+          "rank": 17,
+          "path": "08-Skills/Skill - vault-sync.md",
+          "sources": [
+            "vector#16"
+          ]
+        },
+        {
+          "rank": 18,
+          "path": "05-Knowledge/Topics/Topic - azure-ai-search.md",
+          "sources": [
+            "vector#17"
+          ]
+        },
+        {
+          "rank": 19,
+          "path": "04-Tech/cx-research.md",
+          "sources": [
+            "vector#18"
+          ]
+        },
+        {
+          "rank": 20,
+          "path": "04-Tech/Long-Term Memory for Copilot CLI, the Copilot app and Scout.md",
+          "sources": [
+            "vector#19"
+          ]
+        }
+      ]
+    }
+  ],
+  "index_provenance": {
+    "path": "C:\\Users\\vcinnakonda\\.copilot\\vault-vectors.db",
+    "exists": true,
+    "chunks": 8285,
+    "pages": 651,
+    "dimensions": 512,
+    "model": "text-embedding-3-small"
+  },
+  "provenance": {
+    "revision": "5409c4c",
+    "diff_stat": "CAPABILITIES.md                          |  112 ++++++-\n README.md                                | 1286 +++++++++++++++++-----------------------------------------------------\n core/memory_driver.py                    |   86 ++++-\n docs/IMPLEMENTATION-PLAN-retrieval-v4.md |  471 ++++++++++++--------------\n memory.ps1                               |   20 +-\n ops/retrieval_bench.py                   |  596 +++++++++++++++++++++++++++++---\n tests/test_retrieval_bench.py            |  164 ++++++++-\n tests/test_vault_embed.py                |   26 ++\n tests/test_vault_mcp_rank.py             |   52 +++\n tests/test_vault_sync.py                 |  269 +++++++++++++++\n tests/test_vault_vectors.py              |  252 ++++++++++++++\n wiki/README.md                           |    2 +-\n wiki/build.py                            |   10 +-\n wiki/sync.py                             |  232 ++++++++++++-\n wiki/test_bootstrap.py                   |   11 +\n wiki/vault_mcp.py                        |  105 +++---\n wiki/vault_vectors.py                    |  241 +++++++++++--\n 17 files changed, 2514 insertions(+), 1421 deletions(-)"
+  }
+}

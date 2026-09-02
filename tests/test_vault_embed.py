@@ -14,6 +14,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class EmbedAuthBase(unittest.TestCase):
@@ -144,6 +145,31 @@ class EmbedFallbackTests(EmbedAuthBase):
             self.assertEqual(self.embed.embed(["hello"]), [])
         finally:
             self.embed._get_token = original
+
+    def test_remote_request_uses_bearer_token(self):
+        token = "fake-token-for-header-test"
+        seen = {}
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self):
+                return b'{"data": []}'
+
+        def fake_urlopen(request, timeout):
+            seen["authorization"] = request.get_header("Authorization")
+            seen["timeout"] = timeout
+            return Response()
+
+        with patch.object(self.embed.urllib.request, "urlopen", fake_urlopen):
+            self.assertEqual(self.embed._post({"input": ["hello"]}, token), {"data": []})
+
+        self.assertEqual(seen["authorization"], f"Bearer {token}")
+        self.assertEqual(seen["timeout"], self.embed.REQUEST_TIMEOUT)
 
 
 if __name__ == "__main__":

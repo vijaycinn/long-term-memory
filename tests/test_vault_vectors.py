@@ -7,7 +7,10 @@ for _sib in ("core", "hooks", "ops", "wiki"):
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 
+import sqlite3
+import tempfile
 import unittest
+from pathlib import Path
 
 import vault_vectors as vv
 
@@ -107,6 +110,170 @@ class HashTests(unittest.TestCase):
         self.assertEqual(len(vv._hash("x")), 32)
 
 
+class IndexTests(unittest.TestCase):
+    """Indexing tests use a tiny sqlite-vec-compatible fixture, never live state."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.vault = Path(self.temp.name) / "vault"
+        self.vault.mkdir()
+        (self.vault / "alpha.md").write_text(
+            "---\nsummary: \"Canonical alpha summary\"\n---\n"
+            "# Alpha page\n\n"
+            "[[Home]] › [[Research]] › [[Alpha page]]\n\n"
+            "## First section\n\n"
+            "Alpha content explains the indexed idea.\n",
+            encoding="utf-8",
+        )
+        (self.vault / "beta.md").write_text(
+            "---\nsummary: \"Canonical beta summary\"\n---\n"
+            "# Beta page\n\nBeta content stays out of a one-page run.\n",
+            encoding="utf-8",
+        )
+        self.primary = Path(self.temp.name) / "primary.db"
+        self.shadow = Path(self.temp.name) / "shadow.db"
+        self._originals = {
+            "_sqlite_vec": vv._sqlite_vec,
+            "_connect": vv._connect,
+            "_init": vv._init,
+            "dimensions": vv.vault_embed.dimensions,
+            "embed": vv.vault_embed.embed,
+            "config_get": vv.config.get,
+        }
+
+        class FakeVec:
+            @staticmethod
+            def load(con):
+                return None
+
+        def connect(path, create=False):
+            path = Path(path)
+            if not create and not path.is_file():
+                return None
+            path.parent.mkdir(parents=True, exist_ok=True)
+            con = sqlite3.connect(path)
+            con.row_factory = sqlite3.Row
+            return con
+
+        def init(con, dims):
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS vec_chunks "
+                "(rowid INTEGER PRIMARY KEY, embedding BLOB)"
+            )
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS chunks ("
+                "rowid INTEGER PRIMARY KEY, path TEXT NOT NULL, "
+                "chunk_ix INTEGER NOT NULL, content_hash TEXT NOT NULL, "
+                "preview TEXT, UNIQUE(path, chunk_ix))"
+            )
+            con.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS chunk_fts USING fts5("
+                "body, path UNINDEXED, chunk_ix UNINDEXED)"
+            )
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)"
+            )
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS query_cache ("
+                "key TEXT PRIMARY KEY, embedding BLOB NOT NULL)"
+            )
+
+        def get(key, override=None):
+            if key == "embed_endpoint":
+                return "https://example.invalid/embed"
+            return self._originals["config_get"](key, override)
+
+        vv._sqlite_vec = lambda: FakeVec
+        vv._connect = connect
+        vv._init = init
+        vv.vault_embed.dimensions = lambda: 3
+        vv.vault_embed.embed = lambda texts: [
+            [float(index + 1), float(index + 2), float(index + 3)]
+            for index, _ in enumerate(texts)
+        ]
+        vv.config.get = get
+
+    def tearDown(self):
+        vv._sqlite_vec = self._originals["_sqlite_vec"]
+        vv._connect = self._originals["_connect"]
+        vv._init = self._originals["_init"]
+        vv.vault_embed.dimensions = self._originals["dimensions"]
+        vv.vault_embed.embed = self._originals["embed"]
+        vv.config.get = self._originals["config_get"]
+        self.temp.cleanup()
+
+    def _rows(self, db, sql, params=()):
+        con = sqlite3.connect(db)
+        con.row_factory = sqlite3.Row
+        try:
+            return con.execute(sql, params).fetchall()
+        finally:
+            con.close()
+
+    def test_context_header_is_indexed_but_preview_stays_clean(self):
+        stats = vv.index(self.vault, self.shadow, verbose=False, contextual=True)
+        self.assertTrue(stats["ok"])
+        indexed = self._rows(
+            self.shadow, "SELECT body FROM chunk_fts WHERE path = 'alpha.md'")
+        preview = self._rows(
+            self.shadow, "SELECT preview FROM chunks WHERE path = 'alpha.md'")
+        self.assertTrue(indexed)
+        self.assertIn("Page: Alpha page", indexed[0]["body"])
+        self.assertIn("Area: Home > Research", indexed[0]["body"])
+        self.assertIn("Summary: Canonical alpha summary", indexed[0]["body"])
+        self.assertNotIn("Page: Alpha page", preview[0]["preview"])
+        self.assertNotIn("Summary: Canonical alpha summary", preview[0]["preview"])
+
+    def test_context_header_is_bounded(self):
+        raw = "---\nsummary: \"" + ("summary " * 200) + "\"\n---\n# " + ("title " * 50)
+        header = vv._context_header("folder/page.md", raw, "# Section\n\nbody", 0)
+        self.assertLessEqual(len(header), vv.CONTEXT_HEADER_MAX_CHARS)
+
+    def test_context_header_uses_nearest_section(self):
+        body = "# Page\n\n## Retrieval section\n\nThe answer is here."
+        header = vv._context_header("folder/page.md", body, body, body.index("The"))
+        self.assertIn("Section: Retrieval section", header)
+
+    def test_limited_index_preserves_out_of_scope_chunks(self):
+        first, second = [p.relative_to(self.vault).as_posix()
+                         for p in vv._pages(self.vault)]
+        vv.index(self.vault, self.primary, verbose=False)
+        before = vv.status(self.primary)
+        stats = vv.index(self.vault, self.primary, verbose=False, limit_pages=1)
+        after = vv.status(self.primary)
+        self.assertTrue(stats["ok"])
+        self.assertEqual(before["pages"], 2)
+        self.assertEqual(after["pages"], 2)
+        self.assertEqual(
+            {row["path"] for row in self._rows(
+                self.primary, "SELECT path FROM chunks")},
+            {first, second},
+        )
+        self.assertEqual(
+            {row["path"] for row in self._rows(
+                self.primary, "SELECT path FROM chunk_fts")},
+            {first, second},
+        )
+
+    def test_alternate_db_does_not_modify_primary(self):
+        vv.index(self.vault, self.primary, verbose=False)
+        before = vv.status(self.primary)
+        vv.index(self.vault, self.shadow, verbose=False, contextual=True)
+        after = vv.status(self.primary)
+        shadow = vv.status(self.shadow)
+        self.assertEqual(after["chunks"], before["chunks"])
+        self.assertEqual(after["pages"], before["pages"])
+        self.assertEqual(
+            self._rows(self.primary, "SELECT body FROM chunk_fts "
+                                      "WHERE body LIKE 'Page:%'"),
+            [],
+        )
+        self.assertTrue(self._rows(self.shadow, "SELECT body FROM chunk_fts "
+                                               "WHERE body LIKE 'Page:%'"))
+        self.assertEqual(shadow["chunks"], before["chunks"])
+        self.assertEqual(shadow["pages"], before["pages"])
+
+
 class PackTests(unittest.TestCase):
 
     def test_roundtrip(self):
@@ -137,6 +304,91 @@ class SanitiseFtsTests(unittest.TestCase):
 
     def test_embedded_quote_is_escaped(self):
         self.assertNotIn('""""', vv._sanitise_fts('say"hi'))
+
+
+class Bm25RecallTests(unittest.TestCase):
+    """The lexical side of hybrid retrieval must not disappear for questions."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.db = Path(self.temp.name) / "vectors.db"
+        con = sqlite3.connect(self.db)
+        con.row_factory = sqlite3.Row
+        con.execute("""CREATE VIRTUAL TABLE chunk_fts USING fts5(
+            body, path UNINDEXED, chunk_ix UNINDEXED)""")
+        con.executemany(
+            "INSERT INTO chunk_fts (body, path, chunk_ix) VALUES (?,?,?)",
+            [
+                ("Content Understanding pricing makes scanned page extraction cost predictable.",
+                 "pricing.md", 0),
+                ("How much does the service cost before deployment?",
+                 "faq.md", 0),
+                ("GCC GCC GCC commercial Azure architecture uses a separate Entra tenant.",
+                 "gcc-current.md", 0),
+                ("GCC legacy environment is retired.", "gcc-legacy.md", 0),
+                ("The exact phrase appears in this note.", "phrase.md", 0),
+                ("Architecture guidance for current deployments.", "architecture.md", 0),
+                ("Contact alex@example.com for the deployment review.", "contact.md", 0),
+                ("How to deploy a service safely.", "how-to.md", 0),
+            ],
+        )
+        con.commit()
+        con.close()
+        self._connect = vv._connect
+
+        def connect_fixture(path, create=False):
+            fixture = sqlite3.connect(path)
+            fixture.row_factory = sqlite3.Row
+            return fixture
+
+        vv._connect = connect_fixture
+
+    def tearDown(self):
+        vv._connect = self._connect
+        self.temp.cleanup()
+
+    def test_natural_language_query_relaxes_to_content_terms(self):
+        hits = vv.search_bm25(
+            "how much does content understanding cost per page", limit=3, db=self.db)
+        self.assertTrue(hits)
+        self.assertEqual(hits[0]["path"], "pricing.md")
+        self.assertEqual(hits[0]["branch"], "relaxed")
+
+    def test_short_precise_query_keeps_existing_top_hit(self):
+        self.assertEqual(vv.search_bm25("GCC", limit=3, db=self.db)[0]["path"],
+                         "gcc-current.md")
+
+    def test_deliberate_phrase_syntax_stays_exact(self):
+        self.assertEqual(vv.search_bm25('"exact phrase"', limit=3, db=self.db)[0]["path"],
+                         "phrase.md")
+
+    def test_deliberate_prefix_syntax_stays_exact(self):
+        self.assertEqual(vv.search_bm25("arch*", limit=3, db=self.db)[0]["path"],
+                         "architecture.md")
+
+    def test_deliberate_not_syntax_stays_exact(self):
+        paths = [hit["path"] for hit in vv.search_bm25("GCC NOT legacy", 3, self.db)]
+        self.assertEqual(paths, ["gcc-current.md"])
+
+    def test_punctuation_token_is_sanitised_and_matched(self):
+        self.assertEqual(vv.search_bm25("alex@example.com", 3, self.db)[0]["path"],
+                         "contact.md")
+
+    def test_all_stopword_query_is_not_relaxed_to_broad_or(self):
+        self.assertEqual(vv._relaxed_fts("how to"), "how to")
+        self.assertEqual(vv.search_bm25("how to", 3, self.db)[0]["path"], "how-to.md")
+
+    def test_relaxed_bm25_cannot_displace_vector_hit(self):
+        query = "how much does content understanding cost per page"
+        original_search = vv.search
+        vv.search = lambda q, l=10, db=None: [{
+            "path": "vector-winner.md", "rank": 1, "distance": 0.01,
+        }]
+        try:
+            out = vv.search_hybrid(query, limit=1, db=self.db)
+        finally:
+            vv.search = original_search
+        self.assertEqual(out[0]["path"], "vector-winner.md")
 
 
 class HybridFusionTests(unittest.TestCase):

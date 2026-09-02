@@ -114,25 +114,35 @@ function Sync-Vault {
                 A rebuild is skipped when nothing has changed since the last
                 sync, unless -Force is given. Concurrent runs are serialised by
                 a lock file so a background sync cannot collide with a manual one.
+
+                After the pages rebuild, changed pages are also re-embedded
+                into the vector sidecar so a captured fact becomes semantically
+                searchable, not just keyword-findable — this closes the gap
+                where vault_vectors.py index() was never invoked by anything.
+                On by default; skip it with -NoIndex or $env:LTM_VAULT_AUTOINDEX
+                = '0' (e.g. on a machine with no embedding endpoint configured).
     .EXAMPLE    Sync-Vault
     .EXAMPLE    Sync-Vault -Full
     .EXAMPLE    Sync-Vault -Status
+    .EXAMPLE    Sync-Vault -NoIndex
     #>
     param(
         [switch]$Full,
         [switch]$Force,
         [switch]$Status,
-        [switch]$Quiet
+        [switch]$Quiet,
+        [switch]$NoIndex
     )
     if (-not (Test-Path $script:WikiSync)) {
         if (-not $Quiet) { Write-Warning "Wiki tooling not found at $script:WikiDir" }
         return
     }
     $argv = @($script:WikiSync)
-    if ($Status) { $argv += "--status" }
-    if ($Full)   { $argv += "--full" }
-    if ($Force)  { $argv += "--force" }
-    if ($Quiet)  { $argv += "--quiet" }
+    if ($Status)  { $argv += "--status" }
+    if ($Full)    { $argv += "--full" }
+    if ($Force)   { $argv += "--force" }
+    if ($Quiet)   { $argv += "--quiet" }
+    if ($NoIndex) { $argv += "--no-index" }
 
     $out = & python @argv 2>&1
     $code = $LASTEXITCODE

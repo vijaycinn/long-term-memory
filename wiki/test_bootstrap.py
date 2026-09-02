@@ -160,6 +160,13 @@ def main():
         check("build state kept with the vault, not the repo",
               (vault / ".wiki" / "state.json").is_file()
               and not (WIKI / "state.json").exists())
+        guide = (vault / "00-Meta" / "Vault Guide.md").read_text(encoding="utf-8")
+        check("guide commands are relative to the repository",
+              ". .\\memory.ps1" in guide and "python build.py" in guide,
+              guide[guide.find("## Rebuilding"):guide.find("## Staying in sync")])
+        check("guide does not emit the maintainer workspace path",
+              r"C:\workspace\agency" not in guide,
+              guide[guide.find("## Rebuilding"):guide.find("## Staying in sync")])
 
         # The Bases views and the Obsidian config are what make a fresh vault
         # *usable* rather than merely present - without them a teammate on a new
@@ -282,6 +289,10 @@ def main():
         check("full build succeeds", p.returncode == 0, p.stderr[-500:])
         check("workspace document imported",
               any(vault.rglob("Widget study.md")))
+        guide = (vault / "00-Meta" / "Vault Guide.md").read_text(encoding="utf-8")
+        check("guide uses the configured temporary workspace",
+              str(ws) in guide and r"C:\workspace\agency" not in guide,
+              guide[:500])
         p = run(["validate.py"], e2)
         check("validate still clean after full build",
               "broken links   : 0" in p.stdout, p.stdout[:400])

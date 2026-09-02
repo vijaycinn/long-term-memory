@@ -1,0 +1,391 @@
+{
+  "_comment": "Provenance sidecar for tests/golden/queries.json. Kept separate from queries.json to leave the frozen ops/retrieval_bench.py load_golden() schema (exactly id, query, expect_pages, expect_facts, class) untouched. Two provenance_type values: 'session' (36 entries, g01-g36 ids) - traced to a real ~/.copilot/session-store.db user message, verified as an exact substring at the cited session_id/turn_index during the 2026-09-02 rebuild; 'owner-curated' (21 entries) - added on top per the vault owner's explicit domain priorities, with no verbatim session-store source. Curated entries are never disguised as session-provenanced: an unprovenanced entry labelled as provenanced would be worse than one honestly marked otherwise. Every entry of both types still has its target page(s) verified by reading them in full.",
+  "entries": {
+    "g01": {
+      "provenance_type": "session",
+      "session_id": "204bf476-e7f7-4773-a1dc-1370751cb032",
+      "turn_index": 26,
+      "timestamp": "2026-08-10T21:51:19.394Z",
+      "source_quote": "The blocker is the new leadership hesitating on the cost of backlog and ongoing processing of claims.Backlog sits at 65MM+. As documented in @docs\\saif-frontier-investment-case-2026-08-10.html \"Claims folks said they want access to all or nothing...\"",
+      "note": "verbatim: real trigger for the SAIF OCR-cost-for-backfill research; query text is a pre-existing normalized topic phrase, kept unchanged per 'do not churn what works'."
+    },
+    "g05": {
+      "provenance_type": "session",
+      "session_id": "12d0f3d0-f5a6-4b49-98bc-c612f1c0f920",
+      "turn_index": 3,
+      "timestamp": "2026-04-07T17:40:59.681Z",
+      "source_quote": "save all the detailed analysis in @C:\\workspace\\agency\\docs\\saif as SAIF_429_Analysis.md",
+      "note": "verbatim: literal instruction that produced the target page (filename matches). expect_facts REPLACED: the prior string was a fabricated composite of two real facts (ids 81, 82) that does not exist verbatim in memory.db; replaced with fact id=38, which is on-topic (429/quota troubleshooting) and verified byte-exact.",
+      "normalized": "none (query text pre-existing, unchanged)"
+    },
+    "g06": {
+      "provenance_type": "session",
+      "session_id": "5f0eb2d0-3ed6-4286-aa63-0ff156317615",
+      "turn_index": 1,
+      "timestamp": "2026-04-10T20:38:17.892Z",
+      "source_quote": "Fleet deployed: analyze the email sent by Chu in response to the questions I had asked this AM and give detailed info on how to apply those recommendations in SAIF PoC and whether...",
+      "note": "verbatim (session/date match the Implementation Guide page's own 'modified: 2026-04-10' and 'translating Chu Lahlou (PG) recommendations')."
+    },
+    "g07": {
+      "provenance_type": "session",
+      "session_id": "27b839a0-364a-4675-82f2-2ca9f743c634",
+      "turn_index": 1,
+      "timestamp": "2026-08-12T16:12:30.845Z",
+      "source_quote": "Fleet deployed: wrt to the recommendation of SAIF business case for ACO ... we highlighted Azure Databricks as a entry point. How to convey to the seller on how it stacks with their current Databricks on AWS and how it ties to AI and Foundry?...",
+      "note": "verbatim: direct ask for the Databricks-on-AWS-vs-Azure seller positioning."
+    },
+    "g08": {
+      "provenance_type": "session",
+      "session_id": "fefaf551-7186-45db-9994-91ae91d9497e",
+      "turn_index": 1,
+      "timestamp": "2026-03-23T16:17:21.424Z",
+      "source_quote": "Research the ask from Fort Worth that if they create a new subscription in Azure Commercial for AI - using Foundry to develop agents - can they use the agent to be accessed in their existing apps in their GCC subscription which would be a different subscription. Be prescriptive and suggest recommendations",
+      "note": "verbatim: this IS the research ask that produced the page (page dated 2026-03-25, same week; corroborating follow-up at 2aecb6b9 t5 2026-03-25 asks the same question again: 'Do they create new subscription in GCC or Commercial- especially for AI?')."
+    },
+    "g09": {
+      "provenance_type": "session",
+      "session_id": "6cce5d21-af59-4305-90ab-a71a23af1661",
+      "turn_index": 1,
+      "timestamp": "2026-07-29T14:53:53.251Z",
+      "source_quote": "/se-activity Create one for the meeting with City of Fort Worth on Mon 27 July at 10AM-12PM CST.use milestone - 7-504145723.",
+      "note": "verbatim (minus the /se-activity prefix, an allowed slash-command trim): names the exact milestone number (7-504145723) that the page/fact resolve to."
+    },
+    "g10": {
+      "provenance_type": "session",
+      "session_id": "15a33d75-50c6-4ee9-b5c6-a06db2254f15",
+      "turn_index": 0,
+      "timestamp": "2026-07-02T16:18:03.735Z",
+      "source_quote": "/se-activity Create SE activity for my customer demo on Foundry AI and value prop pitch as well as the followup sent to them.Customer is City of Portland. Use workiq for meeting no...",
+      "note": "verbatim (minus /se-activity prefix): one of several real Portland+GCC/Foundry messages (probe count 3 over 180 days, task-confirmed)."
+    },
+    "g11": {
+      "provenance_type": "session",
+      "session_id": "bc5bbc8e-99e0-4648-8af2-24b751150ddd",
+      "turn_index": 0,
+      "timestamp": "2026-03-04T22:17:43.351Z",
+      "source_quote": "find me emails and teams messages about County of San Luis Obispo, CA account - meeting notes , discussion, emails pertaining to AVD and migration",
+      "note": "verbatim: the research request whose WorkIQ email/Teams search surfaced the Dev Box ask from the customer (the words 'Dev Box' and 'Frontline' never appear in a user turn anywhere in the store - they entered the vault via research this message triggered, not via a keyword the user typed). Same message pairs with g23 (multihop).",
+      "normalized": "none (query text pre-existing, unchanged)"
+    },
+    "g12": {
+      "provenance_type": "session",
+      "session_id": "4b264bb8-f21b-4875-9850-45a8c108de76",
+      "turn_index": 3,
+      "timestamp": "2026-05-13T14:48:35.196Z",
+      "source_quote": "I only concern myself with Apps/AI - Fabric and PowerBi are data swimlane and while I can add on some detail on Azure Infra - like VMs - I dont want my email to talk on Fabric. Just FYI to remember - Fabric is not available for GCC yet. Expected late in 2026 but no clarity on dates yet",
+      "note": "verbatim: one of 32 Fabric+GCC hits over 180 days (task-confirmed probe count). expect_facts ADDED 2026-09-02 during the merge pass (was empty), folded in from the pruned near-duplicate curated 'gcc-fabric' entry - verified byte-exact."
+    },
+    "g13": {
+      "provenance_type": "session",
+      "session_id": "255b3c8f-b864-41da-a2c9-cd2072fc6361",
+      "turn_index": 4,
+      "timestamp": "2026-07-16T17:36:01.524Z",
+      "source_quote": "Mention that since Stearns county seems to be GCC. Also that Agent365 is not available in GCC yet but Foundry control plane offers similar perspective.",
+      "note": "verbatim; this is the exact quote the task cites as one of the seven confirmed-real examples."
+    },
+    "g14": {
+      "provenance_type": "session",
+      "session_id": "a5b0d0f9-4a7e-4f32-a69f-45a0ce6e3a93",
+      "turn_index": 1,
+      "timestamp": "2026-08-05T14:56:51.946Z",
+      "source_quote": "Fleet deployed: As a quick talk track on my upcoming call with enghouse, I want details on Application Gateway & Integration: Need support with application gateway functions and integrating legacy applications with new Azure services...",
+      "note": "verbatim."
+    },
+    "g15": {
+      "provenance_type": "session",
+      "session_id": "a5b0d0f9-4a7e-4f32-a69f-45a0ce6e3a93",
+      "turn_index": 2,
+      "timestamp": "2026-08-05T14:58:36.698Z",
+      "source_quote": "followup - for my benefit and conveying  - what does APIM Gateway v2 offer as features? I see developer portal, I can do oauth through it, API, MCP. Give me a easy to follow schematic in the HTML you are building to talk about it as well",
+      "note": "verbatim, same session as g14 (immediate follow-up turn)."
+    },
+    "g16": {
+      "provenance_type": "session",
+      "session_id": "efa5a304-6983-45a7-b487-452a6c7e5c3e",
+      "turn_index": 0,
+      "timestamp": "2026-05-04T19:03:56.744Z",
+      "source_quote": "/azure-pricing Update Linn county html with relevant az pricing as means of estimate for its workflow with MPC, and spatial join from the geojson/database",
+      "note": "verbatim (minus /azure-pricing prefix)."
+    },
+    "g02": {
+      "provenance_type": "session",
+      "session_id": "9348ee75-2da6-49ec-8b17-6b3b33036c46",
+      "turn_index": 3,
+      "timestamp": "2026-05-04T20:22:17.748Z",
+      "source_quote": "isnt content understanding better than document intelligence? why are you suggesting document intelligence or form recognizer when there are better fidelity options?",
+      "note": "verbatim except 'isnt'->\"isn't\" (typo fix). REPLACES the previous query, which had zero occurrences anywhere in the store even loosely.",
+      "normalized": "typo fix: isnt -> isn't"
+    },
+    "g03": {
+      "provenance_type": "session",
+      "session_id": "3d9ed595-05a3-4156-a666-740f368079d1",
+      "turn_index": 9,
+      "timestamp": "2026-04-20T16:07:07.993Z",
+      "source_quote": "How to verify with GET /defaults if mini model was used?",
+      "note": "verbatim. REPLACES the previous query ('which setting ignored the small language model swap'), which had zero occurrences anywhere in the store. Same session (3d9ed595, 2026-04-20) also produced the page's own source doc, per its 'modified: 2026-04-20' frontmatter."
+    },
+    "g04": {
+      "provenance_type": "session",
+      "session_id": "204bf476-e7f7-4773-a1dc-1370751cb032",
+      "turn_index": 26,
+      "timestamp": "2026-08-10T21:51:19.394Z",
+      "source_quote": "The blocker is the new leadership hesitating on the cost of backlog and ongoing processing of claims.Backlog sits at 65MM+.",
+      "note": "verbatim except a missing space after 'claims.' restored (typo fix). Same real message as g01 (both queries target the same page from one real trigger). REPLACES the previous fabricated query (zero occurrences anywhere in the store).",
+      "normalized": "typo fix: missing space after 'claims.'"
+    },
+    "g17": {
+      "provenance_type": "session",
+      "session_id": "3861de16-2c3d-4d12-827d-be6089304c98",
+      "turn_index": 3,
+      "timestamp": "2026-03-30T16:50:19.026Z",
+      "source_quote": "how is memory handled between various sessions? Do we have perisent memory?",
+      "note": "verbatim except 'perisent'->\"persistent\" (typo fix). REPLACES the previous query ('how do I retain organizational knowledge in my assistant'), zero occurrences.",
+      "normalized": "typo fix: perisent -> persistent"
+    },
+    "g18": {
+      "provenance_type": "session",
+      "session_id": "4b15cccd-934a-4fe4-b8e5-ade5f941534a",
+      "turn_index": 15,
+      "timestamp": "2026-04-15T18:45:32.001Z",
+      "source_quote": "Does Microsoft Hosted Network allow access to PCs in her network? Is it a seperate setup. Do deep research and suggest in TLDR and schematic. Use msft-learn mcp and specifically around https://learn.microsoft.com/en-us/windows-365/enterprise/architecture",
+      "note": "REPLACES the previous query ('why is the wiki behaving like find-in-page'). That query's only candidate target, 'I built a knowledge graph and never traverse it - vault retrieval audit', is filed 2026-09-02 by this same retrieval-v4 diagnostic effort - excluded under the contamination guard. Repurposed to a different real vault topic (Microsoft Hosted Network for GCC W365).",
+      "normalized": "typo fix: seperate -> separate; trimmed trailing 'Do deep research...' tool-instruction clause"
+    },
+    "g19": {
+      "provenance_type": "session",
+      "session_id": "97530c7f-b628-42ef-a1ef-803f7766b57e",
+      "turn_index": 14,
+      "timestamp": "2026-05-04T18:38:08.512Z",
+      "source_quote": "Why suggest databricks when ArcGIS Pro/ Enterprise can do the job? Is it any different than using the spatial join using GlobalMLBuildingFootprints?",
+      "note": "verbatim. REPLACES the previous query ('what cheap adjustment lets related notes participate in lookup') - its topic has zero session-store grounding anywhere."
+    },
+    "g20": {
+      "provenance_type": "session",
+      "session_id": "8267b03c-abc3-4297-ad51-43bab406343c",
+      "turn_index": 2,
+      "timestamp": "2026-08-24T14:23:51.122Z",
+      "source_quote": "My recent applications to Strategic Account Technologist role got rejected as well - granted it was specific to a different city, however I thought there would be some sort of contact from the hiring manager but seemingly got rejected without any contact.What can be done to help get some feedback on why? Asking on Linkedin or sending cold emails would have any impact?",
+      "note": "near-verbatim (trailing 'Asking on Linkedin...' sentence dropped). REPLACES the previous query ('what caused internal candidates to disappear after eleven days'), zero occurrences.",
+      "normalized": "trimmed trailing 'Asking on Linkedin or sending cold emails...' sentence"
+    },
+    "g21": {
+      "provenance_type": "session",
+      "session_id": "27b839a0-364a-4675-82f2-2ca9f743c634",
+      "turn_index": 4,
+      "timestamp": "2026-08-12T16:37:33.426Z",
+      "source_quote": "apart from the commercials associated with the aco benefit, keeping it secondary - highlight on the technical win of unified platform and other advantages Azure Databricks brings",
+      "note": "verbatim. REPLACES the previous query ('how should I position a cloud data platform move for the insurer'), zero occurrences. Same session as g07 (a follow-up turn)."
+    },
+    "g22": {
+      "provenance_type": "session",
+      "session_id": "fa5dfc8a-937c-469f-a28b-ce24093d163f",
+      "turn_index": 19,
+      "timestamp": "2026-08-18T19:10:24.178Z",
+      "source_quote": "can you run from vj-agency vault to extract to TeamBrain vault that is common for the team?",
+      "note": "verbatim. REPLACES the previous query ('how do I publish an account insight to colleagues without sharing raw memory'), zero occurrences."
+    },
+    "g26": {
+      "provenance_type": "session",
+      "session_id": "076b78e8-77b8-406c-a555-b2ff78e9c659",
+      "turn_index": 0,
+      "timestamp": "2026-03-23T15:21:33.385Z",
+      "source_quote": "does custom model weights mean finetuned like lora trained models that are in safetensors format?",
+      "note": "verbatim. REPLACES the previous query ('can I use a different foundation model with the document parser'), zero occurrences. Target page section 3 ('Mistral or a custom LLM? No.') directly answers this. expect_facts ADDED 2026-09-02 during the merge pass, folded in from the pruned near-duplicate curated 'cu-customweights-trap' entry - verified byte-exact."
+    },
+    "g27": {
+      "provenance_type": "session",
+      "session_id": "3861de16-2c3d-4d12-827d-be6089304c98",
+      "turn_index": 18,
+      "timestamp": "2026-03-30T19:00:05.256Z",
+      "source_quote": "what happened to my active context info I had asked to keep track of while implementation? Where did it save?",
+      "note": "verbatim. REPLACES the previous query ('how do I keep an analysis from vanishing when the chat ends'), zero occurrences."
+    },
+    "g23": {
+      "provenance_type": "session",
+      "session_id": "bc5bbc8e-99e0-4648-8af2-24b751150ddd",
+      "turn_index": 0,
+      "timestamp": "2026-03-04T22:17:43.351Z",
+      "source_quote": "find me emails and teams messages about County of San Luis Obispo, CA account - meeting notes , discussion, emails pertaining to AVD and migration",
+      "note": "same real trigger as g11 (deliberately paired).",
+      "normalized": "none (query text pre-existing, unchanged)"
+    },
+    "g24": {
+      "provenance_type": "session",
+      "session_id": "6a3da8e8-e603-4778-b3af-37d981325e66",
+      "turn_index": 3,
+      "timestamp": "2026-08-12T16:37:27.593Z",
+      "source_quote": "DId you check Janise attachment for specific blocker/ issue on CORS related info for debug @docs\\cfw\\Fort_Worth_AI_Way_Ahead_Follow_Up.html ? Also Fort worth is using GCC for their entra and as foundry elements for GCC still get to use Azure Commercial backbone, their AI workflow developed in Foundry are in Commerical side of the house",
+      "note": "verbatim: this session's own doublecheck pass (t1) is what the target page describes catching. Genuinely multihop: connects Fort Worth GCC/Commercial Foundry architecture to the separate Foundry-workflow-designer retirement fact."
+    },
+    "g25": {
+      "provenance_type": "session",
+      "session_id": "27b839a0-364a-4675-82f2-2ca9f743c634",
+      "turn_index": 2,
+      "timestamp": "2026-08-12T16:12:35.659Z",
+      "source_quote": "Wrong analysis - I just want the case for moving AWS Databricks to Azure Databricks as it becomes 1P with Azure and compare and contrast the value addition not only as 1P service but now for the SAIF workload with CU - it becomes an integrated platform for claims processing",
+      "note": "verbatim; names the exact page title concept. Genuinely multihop: connects Databricks-on-Azure positioning with Content Understanding and SAIF's claims-processing business case."
+    },
+    "g28": {
+      "provenance_type": "session",
+      "session_id": "f5f6a61b-300a-47f1-8a3d-c04c5bf78b8a",
+      "turn_index": 5,
+      "timestamp": "2026-06-30T16:27:01.441Z",
+      "source_quote": "followup.. investigate on GCC availability for Teams Phones",
+      "note": "verbatim. GCC product-availability domain (Teams Phone / ACS Teams Phone Extensibility). The 'Teams Phone' page is an auto-tagged entity note but its facts (TPE not compatible with M365 GCC tenants, no migration path) directly answer this. During the merge pass a near-duplicate curated 'gcc-teamsphone' entry was pruned as padding of this query."
+    },
+    "g29": {
+      "provenance_type": "session",
+      "session_id": "687d03ea-c7b6-40b8-80a2-c0ddaab400f7",
+      "turn_index": 4,
+      "timestamp": "2026-05-28T15:02:35.069Z",
+      "source_quote": "GCC Entra is in GCC enclave - not commercial?? - but rest of AZ infra is the same in commercial. The cross-cloud framing requires validation.[📷 Azure GCC.png] Are you reading the schematic right??",
+      "note": "verbatim except the inline image marker dropped. GCC access/architecture domain - this is exactly the 'opposite of the naive answer' trap the vault owner flagged.",
+      "normalized": "dropped inline image marker [📷 Azure GCC.png]"
+    },
+    "g30": {
+      "provenance_type": "session",
+      "session_id": "fd8a966b-2286-47b7-b1f7-53a1717082b0",
+      "turn_index": 13,
+      "timestamp": "2026-07-17T19:47:42.651Z",
+      "source_quote": "i need a short message not verbose. Just that if GCC customer chooses to use claude hosted on azure + datazone standard - that might be a recommended approach",
+      "note": "near-verbatim (leading formatting instruction 'i need a short message not verbose. Just that' trimmed as a tool-instruction clause). GCC models domain (3P Marketplace/Claude). Same session as g31 (t12) and the ZDR compliance turn g35 (t11). expect_pages EXPANDED and expect_facts ADDED 2026-09-02 during the merge pass: folded in the two extra targets and the verified ZDR/Claude-hosting fact from the pruned near-duplicate curated 'gcc-claude-datazone' entry rather than losing that verification work.",
+      "normalized": "trimmed leading 'i need a short message not verbose. Just that' framing clause"
+    },
+    "g31": {
+      "provenance_type": "session",
+      "session_id": "fd8a966b-2286-47b7-b1f7-53a1717082b0",
+      "turn_index": 12,
+      "timestamp": "2026-07-17T19:01:38.200Z",
+      "source_quote": "remember-this and draft a correction with link on ZDR for the GCC customer I can paste in Teams",
+      "note": "verbatim. GCC/CU models domain (ZDR, data-processor question). Same session as g30/g35."
+    },
+    "g32": {
+      "provenance_type": "session",
+      "session_id": "1adf3196-b5a9-43db-953c-e4b82088c91f",
+      "turn_index": 19,
+      "timestamp": "2026-07-20T21:11:56.619Z",
+      "source_quote": "Cover Azure OpenAI vs Voice Live vs MAI models along with cost and licensing component tailored for gcc.use ms-learn and github mcp for additional info",
+      "note": "verbatim. GCC models domain - another 'opposite of naive answer' case: Voice Live/Azure OpenAI Realtime/MAI models are unavailable in Azure GOVERNMENT specifically, not GCC (GCC uses commercial Azure so they ARE available there). expect_facts ADDED 2026-09-02 during the merge pass, folded in from the pruned near-duplicate curated 'gcc-voicemai-cost' entry - verified byte-exact."
+    },
+    "g33": {
+      "provenance_type": "session",
+      "session_id": "b19ae3c1-022e-4f9e-a16b-fed66f619696",
+      "turn_index": 15,
+      "timestamp": "2026-04-13T19:00:02.261Z",
+      "source_quote": "explain to me - not for draft- TLDR pointed explainers in schematic if possible - 1. How to switch CU from 4.1 to 4.1 mini?",
+      "note": "near-verbatim (leading output-format instruction trimmed). CU domain (analyzer choice vs model choice, the PATCH-silently-ignored defect).",
+      "normalized": "trimmed leading 'explain to me - not for draft- TLDR pointed explainers in schematic if possible - 1.' output-format clause"
+    },
+    "g34": {
+      "provenance_type": "session",
+      "session_id": "9e1e8489-627e-465a-b4ed-68da2195d074",
+      "turn_index": 6,
+      "timestamp": "2026-06-12T17:04:19.582Z",
+      "source_quote": "Also for GHCP and GCC it should state usability in non CJIS data - \"The product IS usable in non CJIS data within GCC via Copilot Data Residency, but every time GitHub's AE tells a customer \"not available,\" we lose the deal before architecture. Worth flagging in your Apps/AI blocker rollup as a structural ask, not a performance gap — useful supporting evidence for me/Orlando/Mike to escalate jointly.\"",
+      "note": "verbatim (trailing internal-escalation clause trimmed for query concision). GCC compliance domain. Classified local (not paraphrase): the query already uses the page's own vocabulary (GHCP, GCC, CJIS, Copilot Data Residency).",
+      "normalized": "trimmed trailing internal-escalation clause"
+    },
+    "g35": {
+      "provenance_type": "session",
+      "session_id": "fd8a966b-2286-47b7-b1f7-53a1717082b0",
+      "turn_index": 11,
+      "timestamp": "2026-07-17T18:59:45.672Z",
+      "source_quote": "Do they still need to sign ZDR with Anthropic as it claims - Compliance    Refer to Anthropic Trust Center. Source: https://learn.microsoft.com/en-us/azure/foundry/foundry-models/concepts/claude-models-hosting-comparison",
+      "note": "verbatim minus the trailing MS Learn URL. GCC/CU models domain (Claude data-processor/compliance). Same session as g30/g31.",
+      "normalized": "dropped trailing Microsoft Learn URL"
+    },
+    "g36": {
+      "provenance_type": "session",
+      "session_id": "b7aa1f19-1f1d-4954-9ed1-87cdce5f07d0",
+      "turn_index": 0,
+      "timestamp": "2026-03-27T15:53:48.377Z",
+      "source_quote": "Researching: \"Can Github Enteprise and Github Copilot by the extension of licensing Github Enterprise is CJIS compliant?Does the agreement guarantee data residency in US and not being used for training or availability beyond their enterprise boundaries\"",
+      "note": "verbatim minus the 'Researching:' prefix and typo fix 'Enteprise'->'Enterprise'. GCC compliance/product-availability domain.",
+      "normalized": "dropped 'Researching:' prefix; typo fix Enteprise -> Enterprise"
+    },
+    "gcc-zdr": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC models/access, ZDR documented process. Ground truth established by reading 'Zero Data Retention (ZDR) Terminology & Documented Process for OpenAI and Claude' in full - no session-store message backs this exact wording."
+    },
+    "gcc-ghcopilot": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-specified verbatim query (explicit request, 2026-09-02): 'Can GitHub Copilot be used in GCC?' - the local half of a deliberate local/paraphrase pair targeting the same page. Page read in full: GitHub Copilot is a SaaS product with no GCC-native version, 'not available in GCC' is genuinely true for it, but GitHub Copilot Enterprise + US data residency + FedRAMP model restrictions is a real supported path - the deliberate contrast case against the Azure-service traps elsewhere in this set."
+    },
+    "gcc-ghcopilot-paraphrase": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-specified pairing (explicit request, 2026-09-02): a genuine vocabulary-mismatch variant of gcc-ghcopilot containing neither 'GitHub Copilot' nor 'GCC', targeting the same page. Verified rank: local form ranks 1 on the live index; this paraphrase form ranks 2 (behind a generic index page) - both hit, but the vocabulary-stripped form is measurably harder."
+    },
+    "gcc-parity": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC product availability, a broad rollup question. Ground truth established by reading 'Topic - GCC Product Parity Gaps — FY26' in full."
+    },
+    "gcc-devbox": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC product availability (Dev Box, explicitly named by the owner). Ground truth established by reading both target pages; expect_facts verified byte-exact against memory.db."
+    },
+    "gcc-agentp3": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC product availability (Agent Pre-Purchase Plan, explicitly named by the owner). Ground truth established by reading the target page; the fact records a genuine correction (Agent P3 IS available in GCC, unlike GitHub P3) - itself another instance of the 'do not assume unavailable' trap."
+    },
+    "gcc-copilotstudio-trial": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC product availability (Copilot Studio, explicitly named by the owner). Ground truth established by reading both target pages; expect_facts verified byte-exact against memory.db."
+    },
+    "cu-costlever": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding cost, analyzer-vs-model as the dominant lever (explicitly named by the owner). Ground truth established by reading both target pages in full."
+    },
+    "cu-checkbox": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding, unchecked boxes in table cells (explicitly named by the owner). Ground truth established by reading both target pages in full - genuinely new coverage, not present anywhere in the harvested set."
+    },
+    "cu-meter": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding, prebuilt-read basic vs standard OCR meter (explicitly named by the owner). Ground truth established by reading both target pages in full - genuinely new coverage."
+    },
+    "cu-mistral": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding, closed supported-model list / Mistral (explicitly named by the owner). Ground truth established by reading the target page in full (section 3, 'Mistral or a custom LLM? No.')."
+    },
+    "cu-legalrag": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding routing question. Ground truth established by reading the target page in full - genuinely new coverage, not present anywhere in the harvested set."
+    },
+    "gcc-backbone": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC Entra enclave vs commercial / cross-cloud framing (explicitly named by the owner as 'the most valuable thing you can encode'). Reused from the owner-supplied backbone file (session-state files/real_litmus.py). Ground truth established by reading all three target pages in full; expect_facts verified byte-exact against memory.db."
+    },
+    "gcc-entra": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: same GCC Entra enclave vs commercial trap as gcc-backbone, a second distinct wording of the case the owner-supplied backbone file also treated as a separate entry. Reused from session-state files/real_litmus.py. Ground truth established by reading all three target pages in full; expect_facts verified byte-exact against memory.db."
+    },
+    "gcc-azuregov-need": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC vs GCC-High vs DoD, when Azure Government is genuinely required (explicitly named by the owner). Ground truth established by reading the target page in full - no session-store message backs this exact wording."
+    },
+    "cu-modelswitch-trap": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding, analyzer-vs-model cost lever, phrased as the trap a customer would actually hit ('why didn't switching the model save money'). Ground truth established by reading all three target pages in full."
+    },
+    "cu-billing-confusion": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding, the three separate billing meters (explicitly named by the owner). Ground truth established by reading the target page in full; expect_facts verified byte-exact against memory.db."
+    },
+    "cu-azuregov-trap": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding region availability and the Azure-Government-vs-M365-GCC nuance (explicitly named by the owner as the flagship trap: 'CU is unsupported in Azure Government yet available to M365 GCC because they use commercial Azure'). Ground truth established by reading both target pages in full; expect_facts verified byte-exact against memory.db. No session-store message backs this exact wording - genuinely new coverage."
+    },
+    "gcc-powerplatform-trap": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC access/architecture, the Power Platform GCC exception (Power Platform GCC genuinely runs on Azure Government infrastructure, unlike the general GCC-uses-commercial-Azure rule - the reverse of the usual trap). Ground truth established by reading the target page in full; expect_facts verified byte-exact against memory.db. Genuinely new coverage not present anywhere in the harvested set."
+    },
+    "mh-cu-govregion": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: Content Understanding region availability + GCC vs Azure Government, deliberately built as a two-page multihop synthesis (CU-specific region fact + the general GCC-uses-commercial-Azure principle). Ground truth established by reading both target pages in full. Genuinely new coverage not present anywhere in the harvested set."
+    },
+    "mh-claude-foundry-gcc": {
+      "provenance_type": "owner-curated",
+      "note": "Owner-priority domain: GCC models/access + Claude/Anthropic 3P data-processor question, deliberately built as a two-page multihop synthesis (Claude/Anthropic-is-the-processor fact + the general GCC-uses-commercial-Azure principle establishing why the deployment is reachable at all). Ground truth established by reading both target pages in full. Genuinely new coverage not present anywhere in the harvested set."
+    }
+  }
+}

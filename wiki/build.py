@@ -401,14 +401,14 @@ def main():
           "- To keep a generated note permanently, remove the `generated: true` line. "
           "It then becomes yours and the builder leaves it alone.\n",
           "\n## Rebuilding\n",
-          f"```powershell\n. {MEMORY_MODULE}\n"
+          f"```powershell\n# From the long-term-memory repository root:\n. .\\{MEMORY_MODULE.name}\n"
           "Sync-Vault          # incremental — memory + sessions only (~6s)\n"
           "Sync-Vault -Full    # also rescan the workspace (~30s)\n```\n",
           "Or call the builder directly:\n",
-          f"```powershell\ncd {BUILD_DIR}\n"
-          "python build.py                 # full\n"
-          "python build.py --memory-only   # incremental\n"
-          "python build.py --dry-run       # report only\n```\n",
+          f"```powershell\n# From the {BUILD_DIR.name} directory:\n"
+          f"python {Path(__file__).name}                 # full\n"
+          f"python {Path(__file__).name} --memory-only   # incremental\n"
+          f"python {Path(__file__).name} --dry-run       # report only\n```\n",
           "\n## Staying in sync with memory\n",
           "Writing to long-term memory keeps this vault current automatically:\n",
           "- `Add-Fact`, `Remember-This`, `Add-Topic`, `Add-Entity`, `Add-Snapshot` and "
