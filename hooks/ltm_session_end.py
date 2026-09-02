@@ -6,8 +6,6 @@ import json, os, re, sqlite3, subprocess, sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-DEFAULT_DB = os.path.join(os.environ.get("USERPROFILE", str(Path.home())), ".copilot", "memory.db")
-
 # The repository is organised by function - core/ holds the storage engine,
 # ops/ the maintenance scripts, hooks/ this file. Nothing is installed as a
 # package, so the sibling folders have to go on the path explicitly. Doing it
@@ -18,6 +16,11 @@ for _sib in ("core", "ops", "hooks", "wiki"):
     _p = os.path.join(_REPO, _sib)
     if _p not in sys.path:
         sys.path.insert(0, _p)
+
+import config
+from backfill_entity_mentions import compile_entity_matchers, matching_entity_ids
+
+DEFAULT_DB = str(config.paths()["memory_db"])
 
 def get_conn(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path); conn.row_factory = sqlite3.Row
@@ -156,6 +159,23 @@ def extract_facts(turns, mc, sid):
         count += 1
     return count
 
+
+def record_session_fact_entity_mentions(mc, sid):
+    """Link only this session's active facts, keeping the hook's work bounded."""
+    facts = mc.execute(
+        "SELECT id, content FROM facts WHERE session_id=? AND status='active'", (sid,)
+    ).fetchall()
+    entities = mc.execute("SELECT id, name FROM entities").fetchall()
+    matchers = compile_entity_matchers(entities)
+    for fact in facts:
+        for entity_id in matching_entity_ids(fact["content"], matchers):
+            mc.execute(
+                """INSERT OR IGNORE INTO entity_mentions
+                   (entity_id, parent_id, parent_type, relationship)
+                   VALUES (?, ?, 'fact', 'mentions')""",
+                (entity_id, fact["id"]),
+            )
+
 _PEND = ["todo","next step","remaining","still need","pending","incomplete","not yet","will need to"]
 
 def extract_pending_work(turns, reason, mc, sid):
@@ -211,7 +231,7 @@ def process_session(hook_input, *, memory_db=None, store_path=None):
     end_reason = hook_input.get("reason", "complete")
     if store_path is None: store_path = find_session_store()
     if not store_path or not store_path.exists(): return None
-    db_path = memory_db or DEFAULT_DB
+    db_path = str(config.paths(memory_db=memory_db)["memory_db"])
     repo_id = get_repo_identifier(cwd) if os.path.isdir(cwd) else None
     sc = sqlite3.connect(f"file:{store_path}?mode=ro", uri=True, timeout=5)
     sc.row_factory = sqlite3.Row
@@ -224,6 +244,7 @@ def process_session(hook_input, *, memory_db=None, store_path=None):
         mc.close(); return None
     ent_n = extract_entities(turns, mc, sid)
     fact_n = extract_facts(turns, mc, sid) + extract_pending_work(turns, end_reason, mc, sid)
+    record_session_fact_entity_mentions(mc, sid)
     pats = classify_session(turns, session, mc, repo_id)
     touch_relevant_topics(turns, mc)
     mc.execute("INSERT OR IGNORE INTO ltm_session_log(session_id,cwd,repository,summary,"

@@ -350,6 +350,34 @@ class TestSessionEnd(unittest.TestCase):
         self.assertGreaterEqual(len(mentions), 1)
         conn.close()
 
+    def test_fact_entity_mention_uses_shared_alias_rules(self):
+        sessions = [{"id": "s10", "cwd": "/workspace/agency", "summary": "Contoso decision"}]
+        turns = [
+            {"session_id": "s10", "turn_index": 0,
+             "user_message": "let's go with Contoso for the migration pilot",
+             "assistant_response": "Contoso is selected."},
+        ]
+        self._setup_dbs(
+            sessions, turns,
+            seed_entities=[
+                {"name": "Contoso", "entity_type": "account"},
+                {"name": "AI", "entity_type": "concept"},
+            ],
+        )
+        process_session(
+            {"cwd": "/workspace/agency", "reason": "complete"},
+            memory_db=self.memory_path,
+            store_path=Path(self.store_path),
+        )
+        conn = get_conn(self.memory_path)
+        mentions = conn.execute(
+            """SELECT e.name FROM entity_mentions em
+               JOIN entities e ON e.id=em.entity_id
+               WHERE em.parent_type='fact'"""
+        ).fetchall()
+        conn.close()
+        self.assertEqual({row["name"] for row in mentions}, {"Contoso"})
+
 
 if __name__ == "__main__":
     unittest.main()
