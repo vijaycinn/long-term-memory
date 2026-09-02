@@ -30,6 +30,21 @@ DEFAULTS = {
     "vault": str(Path.home() / "ltm-vault"),
     "memory_db": str(COPILOT_HOME / "memory.db"),
     "session_db": str(COPILOT_HOME / "session-store.db"),
+    # ── semantic search (optional) ────────────────────────────────────
+    # Vectors live in their own sidecar, never in memory.db: memory.db is
+    # covered by the verified backup/restore drill in ops/ltm_backup.py, and
+    # embeddings are a rebuildable derivative that would bloat every snapshot.
+    "vault_vectors": str(COPILOT_HOME / "vault-vectors.db"),
+    # Azure OpenAI embeddings. Empty endpoint = semantic search disabled and
+    # every retrieval path silently falls back to lexical.
+    "embed_endpoint": "",
+    "embed_deployment": "text-embedding-3-small",
+    "embed_dimensions": "1536",
+    "embed_api_version": "2024-02-01",
+    # Where the cached bearer token and its expiry are written, so the
+    # session-start hook can warn that `az login` has lapsed without paying
+    # the ~1-2s cost of shelling out to `az` on every single session start.
+    "embed_token_cache": str(COPILOT_HOME / "embed-token.json"),
 }
 
 ENV = {
@@ -37,6 +52,12 @@ ENV = {
     "vault": "LTM_WIKI_VAULT",
     "memory_db": "LTM_MEMORY_DB",
     "session_db": "LTM_SESSION_DB",
+    "vault_vectors": "LTM_VAULT_VECTORS",
+    "embed_endpoint": "LTM_EMBED_ENDPOINT",
+    "embed_deployment": "LTM_EMBED_DEPLOYMENT",
+    "embed_dimensions": "LTM_EMBED_DIMENSIONS",
+    "embed_api_version": "LTM_EMBED_API_VERSION",
+    "embed_token_cache": "LTM_EMBED_TOKEN_CACHE",
 }
 
 
@@ -69,11 +90,18 @@ def paths(**overrides) -> dict:
         "vault": Path(get("vault", overrides.get("vault"))),
         "memory_db": Path(get("memory_db", overrides.get("memory_db"))),
         "session_db": Path(get("session_db", overrides.get("session_db"))),
+        "vault_vectors": Path(get("vault_vectors", overrides.get("vault_vectors"))),
+        "embed_token_cache": Path(get("embed_token_cache",
+                                      overrides.get("embed_token_cache"))),
         "config_file": CONFIG_FILE,
     }
     out["has_workspace"] = bool(out["workspace"] and out["workspace"].is_dir())
     out["has_memory"] = out["memory_db"].is_file()
     out["has_sessions"] = out["session_db"].is_file()
+    # Semantic search is opt-in and endpoint-gated: without an endpoint there is
+    # nothing to call, so every caller falls back to lexical rather than erroring.
+    out["embed_endpoint"] = get("embed_endpoint", overrides.get("embed_endpoint"))
+    out["has_embeddings"] = bool(out["embed_endpoint"]) and out["vault_vectors"].is_file()
     out["mode"] = ("full" if out["has_workspace"]
                    else "memory-only" if out["has_memory"]
                    else "empty")

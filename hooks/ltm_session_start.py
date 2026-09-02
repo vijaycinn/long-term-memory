@@ -403,6 +403,45 @@ def _section_known_entities(conn: sqlite3.Connection) -> list[str]:
     return lines
 
 
+def _section_embed_auth_nudge() -> list[str]:
+    """Warn when the Azure login backing semantic search has lapsed.
+
+    Deliberately does NOT shell out to `az`: that costs ~1-2 s and this hook runs
+    on every session start under a 10,000 ms budget where everything else is
+    ~40 ms. wiki/vault_embed.py caches the token together with its expiry, so
+    this is a single small file read.
+
+    Silent when semantic search is not configured at all — a user who never set
+    an embedding endpoint should never be nagged about a login they do not need.
+    """
+    try:
+        wiki_dir = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "wiki")
+        if wiki_dir not in sys.path:
+            sys.path.insert(0, wiki_dir)
+        import vault_embed
+        st = vault_embed.token_status()
+    except Exception:
+        # Never let an optional nudge break session start.
+        return []
+
+    if not st.get("configured") or st.get("state") == "ok":
+        return []
+
+    if st.get("state") == "missing":
+        detail = "no cached Azure token was found"
+    else:
+        mins = max(0, st.get("expires_in", 0)) // 60
+        detail = (f"the cached Azure token expires in ~{mins} min"
+                  if st.get("expires_in", 0) > 0 else "the cached Azure token has expired")
+    return [
+        f"> ⚠️ **Semantic (vector) search is degraded** — {detail}.",
+        "> Run **`az login`** to restore it. Until then, vault search silently",
+        "> falls back to lexical matching, which cannot match paraphrased wording.",
+        "",
+    ]
+
+
 def _section_staleness_nudge(conn: sqlite3.Connection) -> list[str]:
     try:
         row = conn.execute(
@@ -485,6 +524,9 @@ def generate_instructions(
         _section_recent_sessions(cwd, repo_id, store_override=store_override),
         _section_known_entities(conn),
         _section_staleness_nudge(conn),
+        # Last, so an actionable "your login lapsed" line is the closest thing
+        # to the conversation rather than buried above recent-session history.
+        _section_embed_auth_nudge(),
     ]
     conn.close()
 
