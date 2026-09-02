@@ -19,7 +19,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from ltm_session_start import generate_instructions
+import ltm_session_start
+from ltm_session_start import (
+    HIGH_PRIORITY_FACT_LIMIT,
+    INITIAL_PROMPT_MIN_CHARS,
+    generate_instructions,
+)
 
 INIT_SQL = (Path(__file__).resolve().parent.parent / "setup" / "init-memory.sql").read_text(encoding="utf-8")
 
@@ -182,6 +187,33 @@ def _make_store_db(path: str) -> None:
     )
     conn.commit()
     conn.close()
+
+
+def _seed_prompt_retrieval_data(path: str) -> str:
+    """Add enough fixed facts to push a distinctive relevant fact out of top 20."""
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "INSERT INTO topics(slug, title, category, status, last_accessed_at) "
+        "VALUES('prompt-retrieval', 'Prompt Retrieval', 'research', 'active', datetime('now'))"
+    )
+    topic_id = conn.execute(
+        "SELECT id FROM topics WHERE slug='prompt-retrieval'"
+    ).fetchone()[0]
+    for ix in range(HIGH_PRIORITY_FACT_LIMIT):
+        conn.execute(
+            "INSERT INTO facts(content, fact_type, importance, status, last_accessed_at) "
+            "VALUES(?, 'constraint', 5, 'active', datetime('now'))",
+            (f"Fixed importance-five control context for legacy budget measurement {ix:02d}.",),
+        )
+    marker = "Zephyrcascade retrieval marker identifies this fact."
+    conn.execute(
+        "INSERT INTO facts(topic_id, content, fact_type, importance, status) "
+        "VALUES(?, ?, 'finding', 4, 'active')",
+        (topic_id, marker),
+    )
+    conn.commit()
+    conn.close()
+    return marker
 
 
 class TestSessionStart(unittest.TestCase):
@@ -365,6 +397,61 @@ class TestSessionStart(unittest.TestCase):
         )
         self.assertNotIn("Identity", content)
         self.assertIn("Active Topics", content)
+
+    # ── Test: prompt-aware high-priority facts ────────────────────────
+
+    def test_empty_prompt_is_byte_identical_to_legacy_fixed_block(self):
+        _make_memory_db(self.memory_path)
+        fixed = generate_instructions(
+            {"cwd": "C:\\workspace\\agency"},
+            memory_db=self.memory_path,
+            output_path=self.output_path,
+        )
+        empty = generate_instructions(
+            {"cwd": "C:\\workspace\\agency", "initialPrompt": ""},
+            memory_db=self.memory_path,
+            output_path=self.output_path,
+        )
+        self.assertEqual(fixed, empty)
+
+    def test_short_prompt_keeps_fixed_high_priority_facts(self):
+        _make_memory_db(self.memory_path)
+        content = generate_instructions(
+            {"cwd": "C:\\workspace\\agency",
+             "initialPrompt": "x" * (INITIAL_PROMPT_MIN_CHARS - 1)},
+            memory_db=self.memory_path,
+            output_path=self.output_path,
+        )
+        self.assertIn("GCC High lacks Azure OpenAI parity", content)
+
+    def test_long_prompt_surfaces_fact_omitted_by_fixed_ranking(self):
+        _make_memory_db(self.memory_path)
+        marker = _seed_prompt_retrieval_data(self.memory_path)
+        fixed = generate_instructions(
+            {"cwd": "C:\\workspace\\agency"},
+            memory_db=self.memory_path,
+            output_path=self.output_path,
+        )
+        prompted = generate_instructions(
+            {"cwd": "C:\\workspace\\agency",
+             "initialPrompt": "Please find the Zephyrcascade retrieval marker for this task."},
+            memory_db=self.memory_path,
+            output_path=self.output_path,
+        )
+        self.assertNotIn(marker, fixed)
+        self.assertIn(marker, prompted)
+        self.assertLessEqual(len(prompted), len(fixed))
+
+    def test_punctuation_heavy_prompt_does_not_raise(self):
+        _make_memory_db(self.memory_path)
+        content = generate_instructions(
+            {"cwd": "C:\\workspace\\agency",
+             "initialPrompt": 'Find "email@example.com: C:\\\\repo\\\\file.py" -- (GCC/FTS5).'},
+            memory_db=self.memory_path,
+            output_path=self.output_path,
+        )
+        self.assertIsNotNone(content)
+        self.assertIn("High-Priority Facts", content)
 
 
 if __name__ == "__main__":

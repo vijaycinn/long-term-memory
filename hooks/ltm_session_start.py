@@ -10,6 +10,7 @@ Output: None (writes to file; stdout is ignored by sessionStart hooks)
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -26,6 +27,21 @@ OUTPUT_FILE = Path(
 
 LTM_START_MARKER = "<!-- LTM-START -->"
 LTM_END_MARKER = "<!-- LTM-END -->"
+
+# A short prompt is usually a command fragment, not enough context to retrieve
+# useful memory. Keep the old block exactly in that case as a reliable rollback.
+INITIAL_PROMPT_MIN_CHARS = 15
+HIGH_PRIORITY_FACT_LIMIT = 20
+
+# Keep half of the load-bearing fact block fixed and let the other half follow
+# the session's first request. These are tuning knobs, not incidental limits.
+FIXED_IMPORTANCE_FIVE_FACT_LIMIT = 10
+PROMPT_RELEVANT_FACT_LIMIT = 10
+
+_PROMPT_STOP_WORDS = {
+    "about", "also", "and", "are", "can", "find", "for", "from", "have", "how",
+    "into", "need", "please", "should", "that", "the", "this", "what", "with",
+}
 
 
 # ── DB helpers ────────────────────────────────────────────────────────
@@ -107,17 +123,22 @@ def _section_active_topics(conn: sqlite3.Connection) -> list[str]:
     return lines
 
 
-def _section_high_priority_facts(conn: sqlite3.Connection) -> list[str]:
+def _high_priority_fact_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     rows = conn.execute(
-        """SELECT f.content, f.fact_type, f.source, t.slug AS topic_slug
+        """SELECT f.id, f.content, f.fact_type, f.source, t.slug AS topic_slug
            FROM facts f LEFT JOIN topics t ON t.id = f.topic_id
            WHERE f.status='active' AND f.importance >= 4
            ORDER BY f.importance DESC, f.last_accessed_at DESC
-           LIMIT 20"""
+           LIMIT ?""",
+        (HIGH_PRIORITY_FACT_LIMIT,),
     ).fetchall()
+    return rows
+
+
+def _render_high_priority_facts(rows: list[sqlite3.Row | dict]) -> list[str]:
     if not rows:
         return []
-    by_topic: dict[str, list] = {}
+    by_topic: dict[str, list[sqlite3.Row | dict]] = {}
     for r in rows:
         slug = r["topic_slug"] or "general"
         by_topic.setdefault(slug, []).append(r)
@@ -129,6 +150,116 @@ def _section_high_priority_facts(conn: sqlite3.Connection) -> list[str]:
             lines.append(f"- [{f['fact_type']}] {f['content']}{src}")
     lines.append("")
     return lines
+
+
+def _section_high_priority_facts(conn: sqlite3.Connection) -> list[str]:
+    """Render the legacy fixed high-priority block."""
+    return _render_high_priority_facts(_high_priority_fact_rows(conn))
+
+
+def _log_retrieval_failure(exc: Exception) -> None:
+    """Keep hook failures visible without allowing them to break session start."""
+    print(f"ltm_session_start: prompt fact retrieval failed: {exc}", file=sys.stderr)
+
+
+def _prompt_search_query(prompt: str) -> str:
+    """Turn natural language into one broad FTS query without reimplementing FTS."""
+    terms = [
+        term for term in re.findall(r"\w{3,}", prompt.lower())
+        if term not in _PROMPT_STOP_WORDS
+    ]
+    return " OR ".join(dict.fromkeys(terms)) or prompt
+
+
+def _section_prompt_aware_high_priority_facts(
+    conn: sqlite3.Connection, prompt: str, db_path: str
+) -> list[str]:
+    """Replace half the fixed block with relevant facts without expanding it."""
+    legacy_rows = _high_priority_fact_rows(conn)
+    legacy_lines = _render_high_priority_facts(legacy_rows)
+    if not legacy_rows:
+        return legacy_lines
+
+    try:
+        # Import lazily: a missing or incompatible driver must not prevent the
+        # unconditional session-start context from being written.
+        core_dir = str(Path(__file__).resolve().parent.parent / "core")
+        if core_dir not in sys.path:
+            sys.path.insert(0, core_dir)
+        from memory_driver import search_memory
+
+        fixed_rows = conn.execute(
+            """SELECT f.id, f.content, f.fact_type, f.source, t.slug AS topic_slug
+               FROM facts f LEFT JOIN topics t ON t.id = f.topic_id
+               WHERE f.status='active' AND f.importance >= 5
+               ORDER BY f.importance DESC, f.last_accessed_at DESC
+               LIMIT ?""",
+            (FIXED_IMPORTANCE_FIVE_FACT_LIMIT,),
+        ).fetchall()
+        fixed_ids = {row["id"] for row in fixed_rows}
+
+        # search_memory owns the FTS5 punctuation retry. It is deliberately
+        # called rather than duplicating that query logic in this hook.
+        search_rows = search_memory({
+            # FTS5 treats whitespace as AND. Natural-language filler would
+            # otherwise eliminate the fact named by a focused user request.
+            "query": _prompt_search_query(prompt),
+            "limit": PROMPT_RELEVANT_FACT_LIMIT * 3,
+            "db_path": db_path,
+        })
+        relevant_rows = [
+            {
+                "id": row["id"],
+                "content": row["content"],
+                "fact_type": row["subtype"],
+                "source": "",
+                "topic_slug": "retrieved",
+            }
+            for row in search_rows
+            if row["src"] == "facts" and row["id"] not in fixed_ids
+        ]
+        relevant_ids = {row["id"] for row in relevant_rows}
+
+        selected: list[sqlite3.Row | dict] = list(fixed_rows)
+        selected_ids = set(fixed_ids)
+        for row in relevant_rows:
+            if len(selected) >= FIXED_IMPORTANCE_FIVE_FACT_LIMIT + PROMPT_RELEVANT_FACT_LIMIT:
+                break
+            if row["id"] not in selected_ids:
+                selected.append(row)
+                selected_ids.add(row["id"])
+
+        # Preserve the original block's usefulness if search has too few facts.
+        for row in legacy_rows:
+            if len(selected) >= HIGH_PRIORITY_FACT_LIMIT:
+                break
+            if row["id"] not in selected_ids:
+                selected.append(row)
+                selected_ids.add(row["id"])
+
+        # Relevant facts may be longer than the fixed facts they displaced.
+        # Keep the legacy count, then trim only retrieved content if required
+        # so the complete injected context remains within the old budget.
+        budget = len("\n".join(legacy_lines))
+        lines = _render_high_priority_facts(selected)
+        for row in selected:
+            if len("\n".join(lines)) <= budget:
+                break
+            if not isinstance(row, dict) or row["id"] not in relevant_ids:
+                continue
+            excess = len("\n".join(lines)) - budget
+            content = row["content"]
+            keep = max(1, len(content) - excess - 3)
+            row["content"] = content[:keep] + "..."
+            lines = _render_high_priority_facts(selected)
+        if len("\n".join(lines)) > budget:
+            # The fixed block always fits this budget; returning it is safer
+            # than allowing a session-start injection to grow unexpectedly.
+            return legacy_lines
+        return lines
+    except Exception as exc:
+        _log_retrieval_failure(exc)
+        return legacy_lines
 
 
 def _section_pending_work(conn: sqlite3.Connection) -> list[str]:
@@ -340,10 +471,15 @@ def generate_instructions(
     repo_id = get_repo_identifier(cwd) if os.path.isdir(cwd) else None
 
     # Build all sections
+    initial_prompt = str(hook_input.get("initialPrompt") or "").strip()
+    if len(initial_prompt) < INITIAL_PROMPT_MIN_CHARS:
+        fact_section = _section_high_priority_facts(conn)
+    else:
+        fact_section = _section_prompt_aware_high_priority_facts(conn, initial_prompt, db_path)
     sections: list[list[str]] = [
         _section_identity(conn),
         _section_active_topics(conn),
-        _section_high_priority_facts(conn),
+        fact_section,
         _section_pending_work(conn),
         _section_recent_patterns(conn),
         _section_recent_sessions(cwd, repo_id, store_override=store_override),
