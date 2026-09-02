@@ -60,31 +60,53 @@ def _stamp():
     return datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def _unique_path(dest_dir, stamp):
+def _unique_path(dest_dir, stamp, prefix="memory"):
     """Collision-proof backup path.
 
     The stamp is second-granular for readability, so two snapshots taken inside
     the same second would otherwise resolve to the same filename and the second
     would silently overwrite the first — losing a recovery point.
     """
-    candidate = os.path.join(dest_dir, f"memory-{stamp}.db")
+    candidate = os.path.join(dest_dir, f"{prefix}-{stamp}.db")
     if not os.path.exists(candidate):
         return candidate
     n = 2
     while True:
-        candidate = os.path.join(dest_dir, f"memory-{stamp}-{n}.db")
+        candidate = os.path.join(dest_dir, f"{prefix}-{stamp}-{n}.db")
         if not os.path.exists(candidate):
             return candidate
         n += 1
 
 
+def _prefix_for(src):
+    """Backup filename prefix derived from the source database.
+
+    memory.db keeps the historical `memory-` prefix so existing snapshots and
+    the rotation glob continue to match; anything else uses its own stem, which
+    keeps the vector sidecar's snapshots from being rotated away by memory.db's
+    retention (and vice versa).
+    """
+    stem = os.path.splitext(os.path.basename(src))[0]
+    return "memory" if stem == "memory" else stem
+
+
+# Row-count probes per known schema. A database only has to satisfy one of
+# these to be considered a recognised, non-empty backup.
+SCHEMA_TABLES = {
+    "memory": ("topics", "facts", "entities", "snapshots"),
+    "vault-vectors": ("chunks", "chunk_fts", "meta"),
+}
+
+
 def _counts(conn):
     out = {}
-    for table in ("topics", "facts", "entities", "snapshots"):
-        try:
-            out[table] = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-        except sqlite3.Error:
-            out[table] = None
+    for tables in SCHEMA_TABLES.values():
+        for table in tables:
+            try:
+                out[table] = conn.execute(
+                    f"SELECT count(*) FROM {table}").fetchone()[0]
+            except sqlite3.Error:
+                pass          # table belongs to the other schema; not an error
     return out
 
 
@@ -104,7 +126,14 @@ def verify(p):
     finally:
         conn.close()
 
-    ok = integrity == "ok" and not fk and counts.get("facts") is not None
+    # Previously this asserted specifically on `facts`, which meant verifying
+    # any database other than memory.db failed -- and because backup() deletes a
+    # snapshot that fails verification, backing up the vector sidecar destroyed
+    # the snapshot it had just written. Accept any recognised schema instead.
+    recognised = any(
+        all(counts.get(t) is not None for t in tables)
+        for tables in SCHEMA_TABLES.values())
+    ok = integrity == "ok" and not fk and recognised
     return {
         "ok": ok,
         "path": path,
@@ -125,16 +154,30 @@ def backup(p):
         return {"ok": False, "error": f"source database not found: {src}"}
 
     os.makedirs(dest_dir, exist_ok=True)
-    dest = _unique_path(dest_dir, _stamp())
+    prefix = _prefix_for(src)
+    dest = _unique_path(dest_dir, _stamp(), prefix)
 
     # Online backup API — consistent even while the DB is being written.
     source = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
     target = sqlite3.connect(dest)
     try:
         source.backup(target)
+        # The snapshot inherits WAL mode from the source, so merely *reading* it
+        # later spawns -wal and -shm siblings. A backup must be ONE
+        # self-contained file: a stale -wal restores inconsistent state, and
+        # cloud-sync clients uploading three interdependent files is a race with
+        # no winner. DELETE mode folds everything into the .db itself.
+        target.execute("PRAGMA journal_mode=DELETE")
+        target.commit()
     finally:
         target.close()
         source.close()
+    # Remove any sidecars the connection left behind before anything copies it.
+    for suffix in ("-wal", "-shm"):
+        try:
+            os.remove(dest + suffix)
+        except OSError:
+            pass
 
     check = verify({"path": dest})
     if not check["ok"]:
@@ -142,16 +185,23 @@ def backup(p):
         return {"ok": False, "error": "backup failed verification and was discarded",
                 "verify": check}
 
-    rotated = rotate(dest_dir, keep)
+    rotated = rotate(dest_dir, keep, prefix)
 
     mirror = None
-    mirror_dir = p.get("mirror_dir")
+    mirror_dir = p.get("mirror_dir") or os.environ.get("LTM_BACKUP_MIRROR")
     if mirror_dir:
         try:
             os.makedirs(mirror_dir, exist_ok=True)
             mirror_path = os.path.join(mirror_dir, os.path.basename(dest))
-            shutil.copy2(dest, mirror_path)
-            mirror = {"ok": True, "path": mirror_path}
+            # copy2 writes to the final name directly; a cloud-sync client
+            # watching this folder can therefore begin uploading a partially
+            # written file. Write beside it and rename, which is atomic on the
+            # same volume, so the client only ever sees a complete snapshot.
+            tmp_path = mirror_path + ".part"
+            shutil.copy2(dest, tmp_path)
+            os.replace(tmp_path, mirror_path)
+            mirror = {"ok": True, "path": mirror_path,
+                      "rotated": rotate(mirror_dir, keep, prefix)}
         except OSError as exc:
             mirror = {"ok": False, "error": str(exc)}
 
@@ -165,9 +215,13 @@ def backup(p):
     }
 
 
-def rotate(dest_dir, keep):
-    """Keep the newest `keep` snapshots, delete the rest."""
-    files = sorted(glob.glob(os.path.join(dest_dir, "memory-*.db")), reverse=True)
+def rotate(dest_dir, keep, prefix="memory"):
+    """Keep the newest `keep` snapshots for this prefix, delete the rest.
+
+    Scoped by prefix so memory.db's retention cannot rotate away the vector
+    sidecar's snapshots, or the reverse.
+    """
+    files = sorted(glob.glob(os.path.join(dest_dir, f"{prefix}-*.db")), reverse=True)
     removed = []
     for old in files[keep:]:
         try:
