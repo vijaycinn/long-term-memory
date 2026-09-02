@@ -177,10 +177,12 @@ The current generated Vault Guide uses the configured `MEMORY_MODULE` and
 the vault, use this checklist's clone-relative commands and update the checkout
 before relying on the generated guide.
 
-Ignore `hooks\enforce_settings.py` for this installation. No shipped hook
-configuration invokes it; the only current references are the implementation,
-its companion JSON, and planning text. It is optional dead weight, not a
-required setup step.
+`hooks\enforce_settings.py` was removed on 2026-09-02. It enforced a single
+guard — keeping `settings.model` off `auto` — and was referenced only by a
+`hook-guard.json` entry that was never wired into `settings.json`, so it never
+ran. If an older checkout still has it, deleting it is safe; also remove its
+entry from `<COPILOT_HOME>\hooks\hook-guard.json`, otherwise the guard
+registers a hook pointing at a script that no longer exists.
 
 Do not copy `copilot-config\hooks\hook-guard.json` directly. The current
 installer copies it to `<COPILOT_HOME>\hooks\hook-guard.json`, substitutes
