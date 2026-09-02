@@ -60,19 +60,21 @@ its URL inside the `.cjs` file, so both `remove_copilot_hooks_at` and
 `cleanup_stale_copilot_hooks_at` skipped it. The config was invisible to its own
 uninstaller.
 
-`hooks/hook-guard.json` registers two `sessionEnd` scripts that close that gap
+`hooks/hook-guard.json` is an installer template. `install-memory.ps1` expands
+its `{{REPO_ROOT}}` placeholders and installs it under the configured Copilot
+home, so every command points to the local checkout. It registers three
+`sessionEnd` scripts that close that gap
 for any tool, not just Agency:
 
 | Script | Does |
 |---|---|
 | `../hooks/prune_orphan_hooks.py` | removes hook entries whose script is gone or whose loopback port has no listener |
 | `../hooks/prune_copilot_state.py` | extension logs older than 7d, session-state older than 60d |
+| `../hooks/plugin_extensions.py` | re-applies the configured disabled plugin extensions |
 
-Restore with:
+Run `setup\install-memory.ps1` to install the generated guard. Do not copy the
+template directly: its placeholders are intentionally unresolved in source control.
 
-```powershell
-Copy-Item hooks\hook-guard.json "$env:USERPROFILE\.copilot\hooks\hook-guard.json"
-```
 
 ### Why `sessionEnd` and never `sessionStart`
 

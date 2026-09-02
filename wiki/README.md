@@ -3,7 +3,7 @@
 Generates the Obsidian vault at `..\VJ-Agency` from two sources:
 
 1. **The workspace** — every markdown file and knowledge artifact under
-   `C:\workspace\agency`, classified into domains.
+   the configured workspace, classified into domains.
 2. **Long-term memory** — `~\.copilot\memory.db` (topics, facts, entities,
    snapshots) and `~\.copilot\session-store.db` (sessions, checkpoints, files
    touched).
@@ -47,7 +47,7 @@ every question.
 
 | Layer | Here |
 |---|---|
-| Raw sources (immutable) | `C:\workspace\agency\**`, `memory.db`, `session-store.db` |
+| Raw sources (immutable) | configured workspace documents, `memory.db`, `session-store.db` |
 | The wiki (LLM-owned) | `VJ-Agency/` |
 | The schema (operating contract) | `VJ-Agency/AGENTS.md` |
 
@@ -120,7 +120,7 @@ that failure loud. Run it after any change to frontmatter emission.
 ## Run it
 
 ```powershell
-cd C:\workspace\agency\obsidian\_build
+Set-Location .\wiki
 python build.py                 # full rebuild (~30s, rescans the workspace)
 python build.py --memory-only   # incremental (~6s, memory + sessions only)
 python build.py --dry-run       # report what would change, touch nothing
@@ -144,7 +144,7 @@ without anyone remembering to rebuild it.
 | `$env:LTM_VAULT_AUTOSYNC = '1'` | Background rebuild on every memory write |
 
 ```powershell
-. C:\workspace\agency\long-term-memory\memory.ps1
+. .\memory.ps1
 Sync-Vault           # incremental, skipped if nothing changed
 Sync-Vault -Full     # also rescan the workspace
 Sync-Vault -Force    # rebuild even when clean
@@ -163,8 +163,11 @@ Incremental sync does **not** see new or changed workspace files. Run
 ## Tests
 
 ```powershell
-cd C:\workspace\agency\long-term-memory
-python -m unittest test_vault_sync -v
+Set-Location ..
+$env:PYTHONIOENCODING = "utf-8"
+python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -t tests
+python wiki\test_bootstrap.py
+python wiki\test_vault_mcp.py
 ```
 
 Covers the sessionEnd hook (lock, opt-out, marker lifecycle, never-raises) and

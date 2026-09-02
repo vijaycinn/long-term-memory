@@ -12,8 +12,9 @@ $script:RepoRoot     = Split-Path -Parent $script:ScriptRoot
 $script:MemoryModule = Join-Path $script:RepoRoot "memory.ps1"
 $script:InitSql = Join-Path $script:ScriptRoot "init-memory.sql"
 $script:SeedScript = Join-Path $script:ScriptRoot "seed_memory.py"
-$script:MemoryDb = Join-Path $env:USERPROFILE ".copilot\memory.db"
-$script:MemoryContext = Join-Path $env:USERPROFILE ".copilot\memory-context.md"
+$script:CopilotHome = if ($env:COPILOT_HOME) { $env:COPILOT_HOME } else { Join-Path $env:USERPROFILE ".copilot" }
+$script:MemoryDb = if ($env:LTM_MEMORY_DB) { $env:LTM_MEMORY_DB } else { Join-Path $script:CopilotHome "memory.db" }
+$script:MemoryContext = Join-Path $script:CopilotHome "memory-context.md"
 
 function Ensure-Python {
     if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
@@ -138,7 +139,7 @@ function Ensure-SessionHooks {
     #>
     param([Parameter(Mandatory)][string]$HooksDir)
 
-    $settings = Join-Path $env:USERPROFILE ".copilot\settings.json"
+    $settings = Join-Path $script:CopilotHome "settings.json"
     $py = @"
 import json, os, pathlib, sys
 
@@ -179,10 +180,48 @@ else:
     Write-Host $result
 }
 
+function Install-HookGuard {
+    $template = Join-Path $script:RepoRoot "copilot-config\hooks\hook-guard.json"
+    $destinationDir = Join-Path $script:CopilotHome "hooks"
+    $destination = Join-Path $destinationDir "hook-guard.json"
+    $requiredScripts = @(
+        (Join-Path $script:RepoRoot "hooks\prune_orphan_hooks.py"),
+        (Join-Path $script:RepoRoot "hooks\prune_copilot_state.py"),
+        (Join-Path $script:RepoRoot "hooks\plugin_extensions.py")
+    )
+
+    if (-not (Test-Path $template)) {
+        throw "Hook guard template not found: $template"
+    }
+    foreach ($scriptPath in $requiredScripts) {
+        if (-not (Test-Path $scriptPath)) {
+            throw "Hook guard script not found: $scriptPath"
+        }
+    }
+
+    New-Item -ItemType Directory -Force -Path $destinationDir | Out-Null
+    $py = @"
+import json
+from pathlib import Path
+
+template = Path(r'$template')
+destination = Path(r'$destination')
+repo_root = Path(r'$script:RepoRoot').resolve().as_posix()
+data = json.loads(template.read_text(encoding='utf-8'))
+for entry in data.get('hooks', {}).get('sessionEnd', []):
+    for shell in ('bash', 'powershell'):
+        entry[shell] = entry[shell].replace('{{REPO_ROOT}}', repo_root)
+destination.write_text(json.dumps(data, indent=2) + '\n', encoding='utf-8')
+"@
+    $py | python -
+    Write-Host "Installed hook guard: $destination"
+}
+
 Write-Host "== Copilot Long-Term Memory Bootstrap ==" -ForegroundColor Cyan
 Ensure-Python
 Ensure-MemoryDb
 Ensure-SessionHooks -HooksDir (Join-Path $script:RepoRoot "hooks")
+Install-HookGuard
 
 if ($SeedExampleData) {
     if (Test-Path $script:SeedScript) {

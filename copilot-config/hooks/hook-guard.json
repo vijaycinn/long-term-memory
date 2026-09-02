@@ -4,29 +4,22 @@
       {
         "type": "command",
         "comment": "Prune orphaned Copilot hook configs left by uninstalled/upgraded tools. Runs at sessionEnd, never sessionStart, to keep startup latency at zero. Fails open.",
-        "bash": "python C:/workspace/agency/long-term-memory/hooks/prune_orphan_hooks.py",
-        "powershell": "python C:/workspace/agency/long-term-memory/hooks/prune_orphan_hooks.py",
+        "bash": "python \"{{REPO_ROOT}}/hooks/prune_orphan_hooks.py\"",
+        "powershell": "python \"{{REPO_ROOT}}/hooks/prune_orphan_hooks.py\"",
         "timeoutSec": 20
       },
       {
         "type": "command",
         "comment": "Retention sweep: extension logs older than 7d, session-state older than 60d. Leaves session-store.db alone. Fails open.",
-        "bash": "python C:/workspace/agency/long-term-memory/hooks/prune_copilot_state.py",
-        "powershell": "python C:/workspace/agency/long-term-memory/hooks/prune_copilot_state.py",
+        "bash": "python \"{{REPO_ROOT}}/hooks/prune_copilot_state.py\"",
+        "powershell": "python \"{{REPO_ROOT}}/hooks/prune_copilot_state.py\"",
         "timeoutSec": 60
       },
       {
         "type": "command",
-        "comment": "De-duplicate MCP OAuth cache entries. Was a sessionStart hook until 2026-08-27, when sessionStart was emptied for load time; moved here so the anti-thrash protection keeps running at zero startup cost.",
-        "bash": "pwsh -NoProfile -File ~/.copilot/mcp-oauth-prune.ps1",
-        "powershell": "pwsh -NoProfile -File C:/Users/vcinnakonda/.copilot/mcp-oauth-prune.ps1",
-        "timeoutSec": 30
-      },
-      {
-        "type": "command",
         "comment": "Re-apply disabled plugin extensions. A plugin update restores extension.mjs and silently re-enables the per-session node fork, so this is enforced every session rather than renamed once. Renames only, never deletes.",
-        "bash": "python C:/workspace/agency/long-term-memory/hooks/plugin_extensions.py",
-        "powershell": "python C:/workspace/agency/long-term-memory/hooks/plugin_extensions.py",
+        "bash": "python \"{{REPO_ROOT}}/hooks/plugin_extensions.py\"",
+        "powershell": "python \"{{REPO_ROOT}}/hooks/plugin_extensions.py\"",
         "timeoutSec": 20
       }
     ]

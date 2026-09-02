@@ -9,11 +9,17 @@ from datetime import datetime
 from pathlib import Path
 
 import notes as N
+from config import paths
 from vaultlib import (BUILD, DRY, F, MEMORY_ONLY, NOW, ROOT, STAMP, STATE_DIR,
                       VAULT, flush_notes, fm, link, load_state, read_text,
                       save_state, slugify, write_note, WRITTEN)
 
 HOME = "Home"
+CONFIG_PATHS = paths()
+REPO_ROOT = Path(__file__).resolve().parent.parent
+MEMORY_MODULE = REPO_ROOT / "memory.ps1"
+BUILD_DIR = Path(__file__).resolve().parent
+WORKSPACE_DESCRIPTION = str(CONFIG_PATHS["workspace"]) if CONFIG_PATHS["workspace"] else "the configured workspace"
 
 
 def moc(folder_key: str, name: str, title: str, blurb: str, sections: list[tuple[str, list[str]]],
@@ -370,7 +376,7 @@ def main():
           "> [!abstract] How this vault is built, what is safe to edit, and how an agent "
           "should read it.\n",
           "\n## What this is\n",
-          "A generated, cross-referenced wiki over the whole `C:\\workspace\\agency` "
+          f"A generated, cross-referenced wiki over `{WORKSPACE_DESCRIPTION}` "
           "workspace plus the long-term memory database. It exists so that a human or an "
           "LLM agent can answer *what we built, who we work with, what we decided and what "
           "happened* from one place, with citations back to source files.\n",
@@ -395,11 +401,11 @@ def main():
           "- To keep a generated note permanently, remove the `generated: true` line. "
           "It then becomes yours and the builder leaves it alone.\n",
           "\n## Rebuilding\n",
-          "```powershell\n. C:\\workspace\\agency\\long-term-memory\\memory.ps1\n"
+          f"```powershell\n. {MEMORY_MODULE}\n"
           "Sync-Vault          # incremental — memory + sessions only (~6s)\n"
           "Sync-Vault -Full    # also rescan the workspace (~30s)\n```\n",
           "Or call the builder directly:\n",
-          "```powershell\ncd C:\\workspace\\agency\\obsidian\\_build\n"
+          f"```powershell\ncd {BUILD_DIR}\n"
           "python build.py                 # full\n"
           "python build.py --memory-only   # incremental\n"
           "python build.py --dry-run       # report only\n```\n",
