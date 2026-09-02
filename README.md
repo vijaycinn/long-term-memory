@@ -344,12 +344,25 @@ simply uses:
 
 | Tool | Purpose |
 |---|---|
-| `memory_search` | **FTS5 over every fact.** Works with no vault, no Obsidian, no build step. |
+| `memory_search` | **FTS5 over every fact.** Works with no vault, no Obsidian, no build step. Ranked by blended bm25 relevance + importance, and expanded with entity co-mentions (`## related_facts`, max 5). |
 | `vault_search` | ranked page lookup with summaries |
-| `vault_read` | a page in full |
+| `vault_read` | a page in full; `hops=1` also lists linked pages (titles + summaries only, 2,000-char cap) |
 | `vault_index` | the catalogue, whole or one section |
 | `vault_recent` | recent entries from the append-only log |
 | `vault_file_answer` | file an analysis back as a durable page |
+
+**Ranking.** `memory_search` blends normalised bm25 (weight 0.7) with
+importance/5 (weight 0.3) — constants `RANK_WEIGHT` / `IMPORTANCE_WEIGHT` in
+`wiki/vault_mcp.py`. SQLite's `bm25()` is **negative, more-negative-is-better**;
+the candidate pool is filled ascending and the most negative value normalises to
+1.0. `tests/test_vault_mcp_rank.py` pins both halves of that convention and is
+mutation-tested against inverting either one.
+
+**Graph expansion.** `vault_read(hops=1)` parses `[[wikilinks]]` and lists
+neighbours; inline body links rank above `## Related` links, which are
+auto-generated name matches and are dropped first when truncating. Neighbour
+*bodies* are never inlined. `memory_search` separately expands through
+`entity_mentions`, so a hit surfaces facts sharing an entity from other topics.
 
 The FTS query is sanitised on failure, so paths, emails and filenames — the
 things people actually search for — do not raise `fts5: syntax error`.
@@ -579,6 +592,8 @@ tests/                the suite
 | `ltm_lint.py` | DB integrity; flags stale or orphaned data |
 | `ltm_wiki_export.py` | Exports topics and facts as a markdown tree |
 | `ltm_bench.py` | Scale benchmark over synthetic databases |
+| `retrieval_bench.py` | **Retrieval quality** — recall@5, MRR, p50/p95 over a golden query set. Freezes `lexical_v0` / `memory_v0` so a committed baseline stays reproducible as the live code changes. `--baseline OUT.json`, `--compare A.json B.json` |
+| `backfill_entity_mentions.py` | Backfills fact-level `entity_mentions` from `facts.content`. `--dry-run` by default; reuses the `notes.py` alias discipline (drops aliases under 4 chars and `STOP_ALIASES`) so short names cannot flood the table |
 
 ### `wiki/`
 
