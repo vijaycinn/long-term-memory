@@ -95,11 +95,10 @@ def pages():
 
 
 # ----------------------------------------------------------------- tools
-def t_search(args):
-    q = (args.get("query") or "").strip()
-    limit = int(args.get("limit") or 10)
-    if not q:
-        return "error: query is required"
+def _t_search_lexical_v0(q: str, limit: int) -> str:
+    """The original substring-AND scorer. Frozen: `mode='lexical'` must keep
+    returning byte-identical output forever, because it is the fallback when
+    sqlite-vec is missing, the endpoint is unset or `az login` has lapsed."""
     terms = [t.lower() for t in q.split() if t]
     hits = []
     for p in pages():
@@ -122,6 +121,65 @@ def t_search(args):
         if s:
             out.append(f"       {s}")
     return "\n".join(out)
+
+
+def _render_ranked(rows: list[dict], q: str, label: str) -> str:
+    out = [f"{len(rows)} match(es) for {q!r} [{label}]", ""]
+    for d in rows:
+        rel = d["path"]
+        p = VAULT / rel
+        summary = read_cached(p)[1] if p.is_file() else ""
+        marker = ""
+        if "rrf" in d:
+            marker = f"[{d['rrf']:.4f}]"
+        elif "distance" in d and d["distance"] is not None:
+            marker = f"[d={d['distance']:.3f}]"
+        elif "score" in d:
+            marker = f"[{d['score']:.2f}]"
+        out.append(f"{marker:>10} {Path(rel).stem}")
+        out.append(f"           {rel}")
+        if summary:
+            out.append(f"           {summary}")
+        if d.get("sources"):
+            out.append(f"           via {', '.join(d['sources'])}")
+    return "\n".join(out)
+
+
+def t_search(args):
+    q = (args.get("query") or "").strip()
+    limit = int(args.get("limit") or 10)
+    if not q:
+        return "error: query is required"
+    mode = (args.get("mode") or "hybrid").strip().lower()
+
+    if mode == "lexical":
+        return _t_search_lexical_v0(q, limit)
+
+    # Semantic modes are strictly optional. Any failure -- extension missing,
+    # nothing indexed, endpoint unset, token lapsed, network down -- falls back
+    # to the frozen lexical scorer rather than surfacing an error, so the vault
+    # never goes dark because of an optional enhancement.
+    try:
+        sys.path.insert(0, str(BUILD))
+        import vault_vectors
+        if mode == "vector":
+            rows = vault_vectors.search(q, limit)
+        elif mode == "bm25":
+            rows = vault_vectors.search_bm25(q, limit)
+        else:
+            mode = "hybrid"
+            rows = vault_vectors.search_hybrid(q, limit)
+    except Exception as e:                       # noqa: BLE001 - see above
+        print(f"[vault_mcp] {mode} search unavailable ({e}); using lexical.",
+              file=sys.stderr)
+        return _t_search_lexical_v0(q, limit)
+
+    if not rows:
+        fallback = _t_search_lexical_v0(q, limit)
+        return (f"[{mode} search returned nothing — falling back to lexical. "
+                f"If this persists, check `az login` and "
+                f"`python wiki\\vault_vectors.py status`.]\n\n{fallback}")
+    return _render_ranked(rows, q, mode)
 
 
 # Stem -> path index for _resolve(). Pages live in subfolders, so the direct
@@ -616,14 +674,26 @@ TOOLS = [
             "customer or account, territory, quota, pipeline, prior research, "
             "past decisions, what happened in an earlier session, GCC rules, MSX "
             "metric definitions, or how a system in this workspace works. "
-            "Returns ranked pages with a one-line summary each; follow up with "
-            "vault_read."),
+            "Defaults to hybrid search (BM25 + embeddings fused by Reciprocal "
+            "Rank Fusion), which finds pages that paraphrase your wording rather "
+            "than repeating it. Falls back to lexical automatically if semantic "
+            "search is unavailable. Returns ranked pages with a one-line summary "
+            "each; follow up with vault_read."),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "query": {"type": "string",
                           "description": "Search terms, e.g. 'content understanding cost'"},
                 "limit": {"type": "integer", "description": "Max results (default 10)"},
+                "mode": {"type": "string",
+                         "enum": ["hybrid", "vector", "bm25", "lexical"],
+                         "description": (
+                             "hybrid (default) fuses BM25 and embeddings — best "
+                             "overall. vector is pure semantic, best for "
+                             "paraphrased wording. bm25 is keyword relevance, "
+                             "fastest (~16 ms) and needs no network. lexical is "
+                             "the original substring match, kept as the "
+                             "guaranteed-offline fallback.")},
             },
             "required": ["query"],
         },
