@@ -1,0 +1,257 @@
+# Install * long-term memory on a peer PC
+
+Use this checklist to install a new, empty long-term-memory system for Copilot
+CLI. The repository is designed to bootstrap cleanly: the memory store, session
+hooks, wiki, and `vault` MCP server are installed by the two setup scripts. The
+greenfield harness tests empty, memory-only, and workspace-backed modes in a
+temporary directory (`wiki\test_bootstrap.py:1-11`, `:124-259`).
+
+## Prerequisites
+
+You need Windows, PowerShell, Git, and Python 3.10 or later. **Do not install
+packages with `pip`.** The Python code uses the standard library; `pyyaml` is
+the one optional import and `wiki\check_frontmatter.py` exits cleanly when it
+is absent (`wiki\check_frontmatter.py:15-19`; import inventory checked across
+`*.py`). The repository's own prerequisite check states the same requirement
+(`README.md:90-98`).
+
+```powershell
+python --version
+git --version
+```
+
+## 1. Select the GitHub account before cloning
+
+This private repository is under the personal `vijaycinn` account. If GitHub
+CLI is active as a `_microsoft` Enterprise Managed User (EMU), cloning can say
+`Repository not found` even when the repository exists. GitHub masks the
+permission failure as a 404; do not debug the URL first. An EMU also cannot
+fork outside the enterprise, so "just fork it" is not a workaround
+(`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:348`, `:363-365`;
+`README.md:107-110`).
+
+```powershell
+gh auth status
+gh auth switch --user vijaycinn
+git clone https://github.com/vijaycinn/long-term-memory.git
+Set-Location .\long-term-memory
+```
+
+If the switch fails, request collaborator access to the private repository;
+do not create an external fork.
+
+## 2. Choose paths before installing
+
+For the simplest installation, use the defaults. The wiki is useful without a
+source workspace: an empty `LTM_WIKI_WORKSPACE` creates a memory-only wiki
+from the database and session store (`wiki\config.py:6-12`, `:26-40`).
+
+The wiki resolves each path in this order: explicit script argument, environment
+variable, `wiki-config.json`, then default (`wiki\config.py:14-15`, `:52-61`).
+`COPILOT_HOME` chooses the configuration directory; the remaining variables
+choose the named resource.
+
+| Setting | Environment variable | Default |
+|---|---|---|
+| Copilot configuration home | `COPILOT_HOME` | `~\.copilot` |
+| Vault directory | `LTM_WIKI_VAULT` | `~\ltm-vault` |
+| Memory database | `LTM_MEMORY_DB` | `<COPILOT_HOME>\memory.db` |
+| Session database | `LTM_SESSION_DB` | `<COPILOT_HOME>\session-store.db` |
+| Optional source workspace | `LTM_WIKI_WORKSPACE` | empty (memory-only) |
+
+To use a non-default location for this PowerShell session, set the variables
+before running either installer. Replace the examples with directories you own;
+do not copy another user's paths.
+
+```powershell
+$env:COPILOT_HOME = "$HOME\.copilot"
+$env:LTM_WIKI_VAULT = "$HOME\ltm-vault"
+$env:LTM_MEMORY_DB = "$env:COPILOT_HOME\memory.db"
+$env:LTM_SESSION_DB = "$env:COPILOT_HOME\session-store.db"
+$env:LTM_WIKI_WORKSPACE = ""
+```
+
+`install-memory.ps1` uses `COPILOT_HOME` and `LTM_MEMORY_DB` for its database
+and bridge, and `install-wiki.ps1` writes the selected vault and workspace to
+`<COPILOT_HOME>\wiki-config.json` (`setup\install-memory.ps1:15-17`;
+`setup\install-wiki.ps1:124-143`). You can instead pass `-Vault` and
+`-Workspace` to `install-wiki.ps1` (`setup\install-wiki.ps1:1-25`).
+
+## 3. Install the memory store
+
+Run the memory installer first.
+
+```powershell
+.\setup\install-memory.ps1
+```
+
+It creates the database, exports the context bridge, registers the two session
+hooks, installs the generated hook guard, and appends the persistent-memory instruction block to
+`<workspace-root>\.github\copilot-instructions.md`
+(`setup\install-memory.ps1:25-36`, `:125-185`, `:184-225`, `:196-200`).
+
+Check `<COPILOT_HOME>\settings.json`. The installer preserves other hooks,
+replaces only its own entries, and creates this exact shape; replace
+`<absolute-clone-path>` with the path to *your* clone if repairing it by hand.
+The installer writes slash-separated absolute paths because it calls
+`Path.as_posix()` (`setup\install-memory.ps1:160-174`).
+
+```json
+{
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "python <absolute-clone-path>/hooks/ltm_session_start.py",
+        "powershell": "python <absolute-clone-path>/hooks/ltm_session_start.py",
+        "timeoutSec": 10000
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "python <absolute-clone-path>/hooks/ltm_session_end.py",
+        "powershell": "python <absolute-clone-path>/hooks/ltm_session_end.py",
+        "timeoutSec": 10000
+      }
+    ]
+  }
+}
+```
+
+### Choose the session-start behavior
+
+There is a deliberate configuration conflict. The memory installer registers
+`ltm_session_start.py` under `sessionStart`
+(`setup\install-memory.ps1:160-176`), while the configuration guidance says
+to keep `sessionStart` empty to avoid startup latency
+(`copilot-config\README.md:78-82`).
+
+Choose one of these supported configurations:
+
+1. Keep the generated `sessionStart` entry when automatic session-start
+   injection matters more than startup latency.
+2. Remove only the generated `ltm_session_start.py` entry from
+   `<COPILOT_HOME>\settings.json` when startup latency matters more. Keep the
+   `sessionEnd` entry so automatic capture remains configured.
+
+The installer skips hook registration rather than overwriting an invalid JSON
+settings file (`setup\install-memory.ps1:149-156`). Repair the JSON and rerun
+the installer if that occurs.
+
+`-SeedExampleData` is optional. The current `setup\seed_memory.py` uses the
+configured memory-database path and declares that its sample data is neutral
+(`setup\seed_memory.py:1-15`); leave the switch off when you want a genuinely
+empty personal store. If you work from an older checkout, inspect that file
+before using the switch: the prior version contained named, HR-sensitive VOF
+data despite the generic option name (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:350`).
+
+## 4. Install the wiki and MCP server
+
+```powershell
+.\setup\install-wiki.ps1
+```
+
+The installer saves the wiki configuration, creates or reuses the vault,
+builds it, and registers the stdio MCP server (`setup\install-wiki.ps1:124-177`,
+`:179-208`). Check `<COPILOT_HOME>\mcp-config.json` for this entry. The
+installer backs up an existing file before changing it
+(`setup\install-wiki.ps1:193-205`).
+
+```json
+{
+  "mcpServers": {
+    "vault": {
+      "tools": ["*"],
+      "type": "stdio",
+      "command": "python",
+      "args": ["<absolute-clone-path>\\wiki\\vault_mcp.py"]
+    }
+  }
+}
+```
+
+The current generated Vault Guide uses the configured `MEMORY_MODULE` and
+`BUILD_DIR` variables rather than a machine-specific path
+(`wiki\build.py:20-21`, `:404-409`). If an older checkout generates a hardcoded path in
+the vault, use this checklist's clone-relative commands and update the checkout
+before relying on the generated guide.
+
+Ignore `hooks\enforce_settings.py` for this installation. No shipped hook
+configuration invokes it; the only current references are the implementation,
+its companion JSON, and planning text. It is optional dead weight, not a
+required setup step.
+
+Do not copy `copilot-config\hooks\hook-guard.json` directly. The current
+installer copies it to `<COPILOT_HOME>\hooks\hook-guard.json`, substitutes
+`{{REPO_ROOT}}` with your clone path, and refuses to install it if a listed
+script is absent (`setup\install-memory.ps1:184-221`). The
+current template has three repository-relative commands, including
+`plugin_extensions.py`; `mcp-oauth-prune.ps1` is no longer registered. If
+using an older checkout, verify every configured command targets a file that
+exists: the prior template used machine-specific paths and referenced an
+absent script (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:349`).
+
+## 5. Set your identity
+
+Nothing prompts for identity. The bridge renders its identity section from the
+single entity whose `is_self` value is set; without one, no identity section
+appears (`memory.ps1:312-331`; `CAPABILITIES.md:24-34`).
+
+```powershell
+. .\memory.ps1
+Set-Identity -Name "Your Name"
+Export-MemoryContext
+```
+
+`Set-Identity` accepts optional `-EntityType`, `-Notes`, and `-Attributes`;
+the command above uses its required `-Name` parameter and the default
+`person` entity type (`memory.ps1:321-329`).
+
+## 6. Upgrade an existing database
+
+Installers initialize a database but do not call the migration operation
+(`setup\install-memory.ps1:182-200`; `core\memory_driver.py:548-584`). If you
+restored or already had `memory.db`, run the idempotent migration before
+continuing.
+
+```powershell
+. .\memory.ps1
+Invoke-MemoryMigration
+Export-MemoryContext
+```
+
+`Invoke-MemoryMigration` sends the `migrate` operation and is safe to rerun
+(`memory.ps1:334-363`; `README.md:646-652`).
+
+## 7. Verify, then restart Copilot CLI
+
+Run the harnesses in this order from the cloned repository.
+
+```powershell
+python wiki\test_bootstrap.py
+python wiki\test_vault_mcp.py
+$env:PYTHONIOENCODING = "utf-8"
+python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -t tests
+```
+
+Healthy output ends with the greenfield bootstrap success message, the MCP
+test's response summary with zero problems, and `OK` from unittest discovery.
+The current suite discovers **182** tests. `CAPABILITIES.md:10-15` still says
+172, so use the live unittest output rather than that stale count. The three
+commands are the repository's standard test sequence
+(`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:56-64`).
+
+Then completely restart Copilot CLI. MCP servers and hooks load at session
+start, so the `vault` tools will not appear in the current session
+(`setup\install-wiki.ps1:234-235`; `README.md:178-181`).
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Repository not found` | GitHub CLI is using an account without access; an EMU sees a masked 404. | Run `gh auth switch --user vijaycinn`, then clone again. Request collaborator access if that account cannot access the repository. |
+| No identity in my context | No entity is marked as self. | Run `. .\memory.ps1`, then `Set-Identity -Name "Your Name"` and `Export-MemoryContext`. |
+| `vault` tool missing from the tool list | The CLI session started before MCP registration, or MCP use is blocked by policy. | Restart Copilot CLI. If still absent, check the `mcpServers.vault` JSON above and the organization's MCP policy (`README.md:235-237`). |
+| Hooks did not run | `settings.json` was invalid, so the installer deliberately skipped it, or the session was already running. | Repair `settings.json`, rerun `.\setup\install-memory.ps1`, and start a new CLI session. |
+| Tests pass but nothing is injected | The generated start hook was removed for the startup-latency configuration, or the running session predates the hook change. | Decide whether to retain the `sessionStart` entry in step 3, then restart Copilot CLI. |
