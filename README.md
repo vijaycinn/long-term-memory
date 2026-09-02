@@ -345,7 +345,7 @@ simply uses:
 | Tool | Purpose |
 |---|---|
 | `memory_search` | **FTS5 over every fact.** Works with no vault, no Obsidian, no build step. Ranked by blended bm25 relevance + importance, and expanded with entity co-mentions (`## related_facts`, max 5). |
-| `vault_search` | ranked page lookup with summaries |
+| `vault_search` | ranked page lookup with summaries; `mode` = hybrid (default) / vector / bm25 / lexical |
 | `vault_read` | a page in full; `hops=1` also lists linked pages (titles + summaries only, 2,000-char cap) |
 | `vault_index` | the catalogue, whole or one section |
 | `vault_recent` | recent entries from the append-only log |
@@ -600,6 +600,8 @@ tests/                the suite
 | File | Purpose |
 |------|---------|
 | `config.py` | Path and mode resolution — argument → env var → `wiki-config.json` → default |
+| `vault_embed.py` | Azure OpenAI embeddings over `urllib` (no SDK). Caches the CLI token **with its expiry** so the session-start hook can warn that `az login` lapsed without paying ~1-2 s to shell out to `az` |
+| `vault_vectors.py` | Vector sidecar — chunking, embedding, BM25, and RRF hybrid fusion. Keyed on **content hash**, so a rebuild that changes no text costs nothing |
 | `vaultlib.py` | Folder plan, classification, scanning, DB loading, note buffering and flush |
 | `notes.py` | Note generation — entities, topics, learnings, imports, sessions, work log |
 | `build.py` | Entry point — notes, maps of content, **Obsidian config and graph** |

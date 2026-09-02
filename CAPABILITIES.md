@@ -10,7 +10,7 @@ design together, and how to extend it safely.
 | **Schema version** | **3** |
 | Driver ops | 15 |
 | PowerShell cmdlets | 26 |
-| Tests | **197** unittest across 9 files, plus 2 standalone harnesses |
+| Tests | **239** unittest across 11 files, plus 2 standalone harnesses |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
 
@@ -315,13 +315,15 @@ python -W ignore::ResourceWarning -m unittest discover -p "test_*.py"
 | `test_memory_driver.py` | 71 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
+| `test_vault_vectors.py` | 28 | Boilerplate stripping, chunking, content hashing, FTS sanitising, RRF fusion and degradation |
+| `test_vault_embed.py` | 14 | Token expiry states, the `az login` nudge, every embed fallback path |
 | `test_vault_mcp_rank.py` | 15 | **bm25 sign trap** (mutation-tested), rare-term ranking, candidate-pool direction, entity co-mention caps, `hops=0` byte-identity |
 | `test_lint.py` | 14 | Health checks |
 | `test_vault_sync.py` | 14 | Wiki bridge — sessionEnd hook, sync marker/lock/retry, incremental scoping |
 | `test_session_start.py` | 13 | sessionStart hook, incl. prompt-aware retrieval (empty/short/long/punctuation) |
 | `test_session_end.py` | 11 | sessionEnd hook, incl. fact-level entity edges |
 | `test_retrieval_bench.py` | 4 | Golden-set schema, recall/MRR arithmetic, compare deltas |
-| **Total** | **197** | |
+| **Total** | **239** | |
 
 Two standalone harnesses run outside `unittest`:
 

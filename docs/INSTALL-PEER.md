@@ -208,7 +208,64 @@ Export-MemoryContext
 the command above uses its required `-Name` parameter and the default
 `person` entity type (`memory.ps1:321-329`).
 
-## 6. Upgrade an existing database
+## 6. Optional — enable semantic search
+
+Everything above gives you a working vault with **lexical** search. Semantic
+search is opt-in and gated on an endpoint being configured: without one, every
+retrieval path silently uses the lexical fallback and nothing warns you
+(`wiki\config.py` `has_embeddings`; `wiki\vault_mcp.py` `t_search`).
+
+It is worth enabling. Measured on a 619-page vault
+(`docs\bench\PHASE2-GATE.md`): recall@5 rose from **0.370 to 0.556**, and the
+paraphrase class — queries that use different words from the page — rose from
+**exactly 0.000** to 0.182. Lexical search cannot match a word that is not
+present, so that class is unreachable without embeddings.
+
+**You need:** an Azure OpenAI (or AI Services) resource with a
+`text-embedding-3-small` deployment, and the Azure CLI. There is no API key to
+manage — auth is a bearer token from your own `az login`.
+
+```powershell
+pip install sqlite-vec          # the ONLY pip dependency in this repo, and it is optional
+az login
+
+python -c "import sys; sys.path.insert(0,'wiki'); import config; config.save(embed_endpoint='https://<your-resource>.cognitiveservices.azure.com', embed_deployment='text-embedding-3-small', embed_dimensions='512')"
+
+python wiki\vault_embed.py      # smoke test: prints the vector dimension
+python wiki\vault_vectors.py index
+python wiki\vault_vectors.py status
+```
+
+**Why 512 dimensions and not 1536.** `text-embedding-3-small` is a Matryoshka
+model, so the vector can be truncated with little quality loss — MTEB 61.6
+versus 62.3. The sidecar is three times smaller for it: ~35 MB instead of
+~78 MB on a corpus this size.
+
+**Cost.** A full build of 7,940 chunks was **$0.039**. Re-indexing is keyed on
+**content hash**, not mtime, so a rebuild that changes no text re-embeds
+nothing and costs **$0.00** — verified at 7,940/7,940 chunks reused. Run
+`index` freely.
+
+**Latency, honestly.** A query string seen for the first time costs ~700 ms,
+almost entirely the network round-trip to embed it. A query cache in the
+sidecar makes repeats ~71 ms, which is the same as the old lexical path. If you
+are offline or the endpoint is unreachable, search degrades to lexical rather
+than failing.
+
+**`az login` expiry.** Tokens lapse. When they do, the session-start hook prints
+a reminder telling you to re-run `az login`; until you do, search quietly falls
+back to lexical. The hook reads a cached expiry rather than calling `az`, so it
+adds no measurable startup cost. If semantic search is not configured at all,
+the reminder never appears.
+
+> **Do not commit the sidecar to git.** `.gitignore` excludes `*.db` on purpose.
+> The BM25 index inside it stores the **full text** of every chunk — on the
+> reference vault, 7.9 million characters recoverable with one SQL query,
+> including customer and HR-sensitive material. It is a plaintext copy of your
+> vault wearing a binary extension. Back it up outside the repository if you
+> want one; rebuilding costs four cents.
+
+## 7. Upgrade an existing database
 
 Installers initialize a database but do not call the migration operation
 (`setup\install-memory.ps1:182-200`; `core\memory_driver.py:548-584`). If you
@@ -224,7 +281,7 @@ Export-MemoryContext
 `Invoke-MemoryMigration` sends the `migrate` operation and is safe to rerun
 (`memory.ps1:334-363`; `README.md:646-652`).
 
-## 7. Verify, then restart Copilot CLI
+## 8. Verify, then restart Copilot CLI
 
 Run the harnesses in this order from the cloned repository.
 
