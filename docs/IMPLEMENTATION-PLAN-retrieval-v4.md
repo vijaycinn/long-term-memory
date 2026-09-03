@@ -18,24 +18,24 @@ Status vocabulary in this table is deliberate:
 
 | Phase / Task | Implemented | Tested | Repository Sync | Active / Remaining Gate |
 |---|---|---|---|---|
-| **Phase 0** (T0.1, T0.2) | **Yes.** Harness, parser fix, oracle mode, five strategies, 57-query set, and provenance sidecar exist. | **Yes.** Retrieval benchmark tests pass. The set is **57 queries**: 36 session-provenanced and 21 owner-curated. | **Local commit only.** Current files are in `e89946f`, one commit ahead of `origin/main`. | **Artifact closeout remains.** The checked-in oracle is still the old 27-query run; the reported 51/57 result is normal retrieval, not a 57-query oracle. |
-| **Phase 1** (T1.1–T1.5) | **Yes.** Graph expansion, ranking, entity backfill, and session-end edge capture exist. | **Yes.** Unit coverage passes; `hops=1` is an exploration aid and did not improve benchmark recall. | **Base implementation pushed.** Current integrated versions of shared files also contain local-only `e89946f` changes. | Live hook activation was **not reverified** in this audit. |
-| **Phase 2** (T2.1–T2.9, including T2.3) | **Yes.** Vector sidecar, hybrid RRF, relaxed BM25, page reranker, contextual chunking, and auto-index exist. | **Mostly.** All targeted tests pass. Reranker helpers and sync dispatch are covered; direct hybrid-reranker invocation and the claimed live `Remember-This` end-to-end path are not repository regression tests. | **Local commit only.** Completion is in `e89946f`; `origin/main` stops before these integrated changes. | Reconcile the 57-query oracle artifact and avoid claiming the live sidecar's contextual mode unless recorded or reverified. |
+| **Phase 0** (T0.1, T0.2) | **Yes.** Harness, parser fix, oracle mode, five strategies, 57-query set, and provenance sidecar exist. | **Yes.** Retrieval benchmark tests pass. The set is **57 queries**: 36 session-provenanced and 21 owner-curated. | **Pushed.** Current files are reachable from `origin/main` through `e89946f`. | **Artifact closeout remains.** The checked-in oracle is still the old 27-query run; the reported 51/57 result is normal retrieval, not a 57-query oracle. |
+| **Phase 1** (T1.1–T1.5) | **Yes.** Graph expansion, ranking, entity backfill, and session-end edge capture exist. | **Yes.** Unit coverage passes; `hops=1` is an exploration aid and did not improve benchmark recall. | **Pushed.** Base commits and the integrated `e89946f` versions are on `origin/main`. | Live hook activation was **not reverified** in this audit. |
+| **Phase 2** (T2.1–T2.9, including T2.3) | **Yes.** Vector sidecar, hybrid RRF, relaxed BM25, page reranker, contextual chunking, and auto-index exist. | **Mostly.** All targeted tests pass. Reranker helpers and sync dispatch are covered; direct hybrid-reranker invocation and the claimed live `Remember-This` end-to-end path are not repository regression tests. | **Pushed** in `e89946f`. | Reconcile the 57-query oracle artifact and avoid claiming the live sidecar's contextual mode unless recorded or reverified. |
 | **Phase 3** (T3.1) | **Yes.** Prompt-aware `initialPrompt` fact injection exists. | **Yes.** Empty, short, long, and punctuation-heavy prompts are covered. | **Pushed** in `ced1dd7`. | **Activation unverified.** The checked-in config template keeps `sessionStart` empty; the installer registers the hook. User-level settings were not authorized for inspection. |
-| **Phase 4** (P4.0–P4.3) | **Partial.** B2/B4 and the guide exist; the local neutral seed exists. | **Partial.** Bootstrap proves generated-path portability, but no clean-machine installer test exists. | **Mixed.** Older guide and portability fixes are pushed; current guide/docs are in local-only `e89946f`; neutral `setup/seed_memory.py` is ignored and untracked. | B1 access policy, B3 seed distribution, clean-machine verification, two path defects, and stale docs remain. |
+| **Phase 4** (P4.0–P4.3) | **Partial.** B2/B4 and the guide exist; the local neutral seed exists. | **Partial.** Bootstrap proves generated-path portability, but no clean-machine installer test exists. | **Mixed.** Current guide and portability fixes are pushed; neutral `setup/seed_memory.py` remains ignored and untracked. | B1 access policy, B3 seed distribution, clean-machine verification, two path defects, and stale docs remain. |
 
 ### 0.0.1 Git and release snapshot
 
 | Layer | Revision / State | Meaning |
 |---|---|---|
-| `origin/main` | `5409c4c` | Pushed repository. Its implementation plan still says **proposed, not started**. |
-| Local `main` before this audit edit | `e89946f` | **Ahead 1, behind 0.** Contains the 26-file Retrieval v4 completion commit. |
-| This 2026-09-03 audit update | Working-tree change to this plan | Not committed or pushed until a later explicit Git action. |
+| Retrieval v4 completion | `e89946f` | Pushed to `origin/main` on 2026-09-03. |
+| Implementation audit closeout | `fa3d98b` | Pushed to `origin/main` on 2026-09-03. |
+| Branch state after synchronization | `main == origin/main` | Verified with ahead/behind counts `0 0`. |
 
 **Answer to "did Copilot finish it?":** it finished the core code and repository
-test work, but it did **not** finish release closeout. The unpushed completion
-commit, inconsistent benchmark artifacts, untracked neutral seed, unverified
-live activation, and unverified peer install prevent a "fully finished" status.
+test work, but it did **not** finish release closeout. The inconsistent benchmark
+artifacts, untracked neutral seed, unverified live activation, and unverified
+peer install prevent a "fully finished" status.
 
 **The core diagnostic insight:** Dense embeddings + RRF hybrid fusion cured the structurally-zero vocabulary failure, but raw BM25 still had a long-query recall bug until T2.9. The selected relaxed-OR displacement repair improves candidate-pool coverage without improving Recall@5: at K=120, MRR is **0.472** versus **0.488** at K=60, while g04 returns at pool rank 18 and g26 reaches rank 10. This is a qualified structural repair, not a net metric win.
 
@@ -414,7 +414,6 @@ guard has three scripts while the template has four.
 | Priority | Work | Current Evidence | Completion Proof |
 |---|---|---|---|
 | **P0** | Reconcile benchmark artifacts. Generate a 57-query `--oracle` artifact with revision, diff, pages, chunks, dimensions, and model provenance. | `oracle-ceiling-2026-09-02.json` is 27 queries at 21/27 Recall@20. The 51/57 result lives in normal retrieval output, not an oracle artifact. | Checked-in 57-query oracle whose metrics match the plan and whose run used a stable full index. |
-| **P0** | Publish the completed implementation after review. | Local `main` is one commit ahead: `e89946f`; `origin/main` is `5409c4c`. This audit edit is newer and uncommitted. | Reviewed commit(s) pushed; `git rev-list --left-right --count origin/main...HEAD` returns `0 0`. |
 | **P1** | Make the neutral seed portable. | `setup/seed_memory.py` is neutral locally but ignored and absent from Git. | Peer clone contains the neutral seed, or the installer/docs no longer offer seeding. |
 | **P1** | Verify peer installation on a clean Windows profile or machine. | Temp-directory bootstrap, 281 unittests, and MCP 9/9 pass; neither PowerShell installer has a clean-machine integration run. | Both installers create correct DB, hooks, MCP JSON, identity, restart behavior, and optional seed behavior from a fresh clone. |
 | **P1** | Fix remaining path portability defects. | `install-wiki.ps1` checks only `$COPILOT_HOME\memory.db` instead of `LTM_MEMORY_DB`; `install-memory.ps1` scans default `%USERPROFILE%\.copilot` agent paths instead of custom `COPILOT_HOME`. | Targeted tests or isolated install prove both custom paths work. |
@@ -448,7 +447,7 @@ guard has three scripts while the template has four.
 - [ ] **P4.0-B3:** neutral seed tracked in Git or seed option removed
 - [ ] `docs/INSTALL-PEER.md` checklist verified **on a clean machine** — guide written; clean-machine verification still outstanding and cannot be done from this host
 - [ ] `README.md`, `CAPABILITIES.md`, and `copilot-config/README.md` reconciled with current test count, auto-index behavior, safe limited indexing, and four-script hook guard
-- [ ] Retrieval v4 completion and this audit update pushed to `origin/main`
+- [x] Retrieval v4 completion and the 2026-09-03 audit update pushed to `origin/main`
 
 ## What would make me abandon this plan
 
