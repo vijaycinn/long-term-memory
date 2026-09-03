@@ -181,19 +181,25 @@ def embed(texts: list[str]) -> list[list[float]]:
         print(f"[vault_embed] {e}", file=sys.stderr)
         return []
 
-    out: list[list[float]] = []
     dims = dimensions()
-    for i in range(0, len(texts), BATCH_SIZE):
-        batch = texts[i:i + BATCH_SIZE]
+    tenant_refreshed = False
+
+    def send(batch: list[str]) -> list[list[float]]:
+        nonlocal token, tenant_refreshed
         body = {"input": batch, "dimensions": dims}
         for attempt in range(MAX_RETRIES):
             try:
                 data = _post(body, token)
                 # The API may return items out of order; `index` is authoritative.
                 items = sorted(data.get("data", []), key=lambda d: d.get("index", 0))
-                out.extend(it["embedding"] for it in items)
-                break
+                return [it["embedding"] for it in items]
             except urllib.error.HTTPError as e:
+                detail = ""
+                try:
+                    payload = json.loads(e.read().decode("utf-8"))
+                    detail = payload.get("error", {}).get("message", "")
+                except (OSError, UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+                    pass
                 if e.code == 401 and attempt == 0:
                     # Token rejected despite looking fresh — force a refresh once.
                     try:
@@ -202,6 +208,32 @@ def embed(texts: list[str]) -> list[list[float]]:
                         continue
                     except EmbedUnavailable:
                         return []
+                if (e.code == 400
+                        and "does not match resource tenant" in detail.casefold()
+                        and not tenant_refreshed):
+                    # The disk cache can outlive an `az account set` switch.
+                    # Refresh once using the now-active subscription instead of
+                    # recursively splitting a request whose payload is valid.
+                    tenant_refreshed = True
+                    try:
+                        _write_token_cache("", 0)
+                        token = _get_token()
+                        continue
+                    except EmbedUnavailable:
+                        return []
+                if e.code == 400 and len(batch) > 1:
+                    # Azure OpenAI applies a token budget to the whole embeddings
+                    # request, not just to each input. Vault chunks are bounded,
+                    # but 64 otherwise-valid chunks can exceed that aggregate
+                    # budget. Bisect until the service accepts each sub-batch.
+                    mid = len(batch) // 2
+                    left = send(batch[:mid])
+                    if len(left) != mid:
+                        return []
+                    right = send(batch[mid:])
+                    if len(right) != len(batch) - mid:
+                        return []
+                    return left + right
                 if e.code in (429, 500, 502, 503, 504) and attempt < MAX_RETRIES - 1:
                     # Honour Retry-After when the service supplies it; otherwise
                     # back off exponentially.
@@ -212,7 +244,9 @@ def embed(texts: list[str]) -> list[list[float]]:
                         delay = 2 ** attempt
                     time.sleep(min(delay, 30))
                     continue
-                print(f"[vault_embed] HTTP {e.code}: {e.reason}", file=sys.stderr)
+                suffix = f" — {detail[:300]}" if detail else ""
+                print(f"[vault_embed] HTTP {e.code}: {e.reason}{suffix}",
+                      file=sys.stderr)
                 return []
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError,
                     KeyError) as e:
@@ -221,6 +255,15 @@ def embed(texts: list[str]) -> list[list[float]]:
                     continue
                 print(f"[vault_embed] {type(e).__name__}: {e}", file=sys.stderr)
                 return []
+        return []
+
+    out: list[list[float]] = []
+    for i in range(0, len(texts), BATCH_SIZE):
+        batch = texts[i:i + BATCH_SIZE]
+        vectors = send(batch)
+        if len(vectors) != len(batch):
+            return []
+        out.extend(vectors)
     return out
 
 

@@ -8,6 +8,7 @@ for _sib in ("core", "hooks", "ops", "wiki"):
         _sys.path.insert(0, _p)
 
 import importlib
+import io
 import json
 import os
 import tempfile
@@ -170,6 +171,74 @@ class EmbedFallbackTests(EmbedAuthBase):
 
         self.assertEqual(seen["authorization"], f"Bearer {token}")
         self.assertEqual(seen["timeout"], self.embed.REQUEST_TIMEOUT)
+
+
+    def test_http_400_large_batch_is_bisected_and_order_preserved(self):
+        self._write_token(9999)
+        calls = []
+
+        def fake_post(body, token):
+            batch = body["input"]
+            calls.append(len(batch))
+            if len(batch) > 5:
+                raise self.embed.urllib.error.HTTPError(
+                    "https://example.invalid", 400, "Bad Request", {},
+                    io.BytesIO(b'{"error":{"message":"maximum input tokens exceeded"}}'))
+            return {
+                "data": [
+                    {"index": i, "embedding": [float(text)]}
+                    for i, text in enumerate(batch)
+                ]
+            }
+
+        with patch.object(self.embed, "_post", fake_post):
+            result = self.embed.embed([str(i) for i in range(20)])
+
+        self.assertEqual([row[0] for row in result], [float(i) for i in range(20)])
+        self.assertEqual(calls[0], 20)
+        self.assertTrue(all(size <= 5 for size in calls if size not in (20, 10)))
+
+    def test_http_400_single_input_still_fails_cleanly(self):
+        self._write_token(9999)
+
+        def fail(_body, _token):
+            raise self.embed.urllib.error.HTTPError(
+                "https://example.invalid", 400, "Bad Request", {},
+                io.BytesIO(b'{"error":{"message":"invalid dimensions"}}'))
+
+        with patch.object(self.embed, "_post", fail):
+            self.assertEqual(self.embed.embed(["hello"]), [])
+
+    def test_tenant_mismatch_refreshes_cached_token_once(self):
+        tokens = iter(("old-tenant-token", "correct-tenant-token"))
+        calls = []
+
+        def fake_post(body, token):
+            calls.append((list(body["input"]), token))
+            if token == "old-tenant-token":
+                raise self.embed.urllib.error.HTTPError(
+                    "https://example.invalid", 400, "Bad Request", {},
+                    io.BytesIO(
+                        b'{"error":{"message":"Token tenant old does not match resource tenant."}}'))
+            return {
+                "data": [
+                    {"index": i, "embedding": [float(i)]}
+                    for i, _ in enumerate(body["input"])
+                ]
+            }
+
+        with patch.object(self.embed, "_get_token", lambda: next(tokens)), \
+                patch.object(self.embed, "_post", fake_post):
+            result = self.embed.embed(["one", "two"])
+
+        self.assertEqual(result, [[0.0], [1.0]])
+        self.assertEqual(
+            calls,
+            [
+                (["one", "two"], "old-tenant-token"),
+                (["one", "two"], "correct-tenant-token"),
+            ],
+        )
 
 
 if __name__ == "__main__":

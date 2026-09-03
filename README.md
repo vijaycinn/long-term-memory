@@ -111,6 +111,10 @@ identifiers.
   python wiki\vault_vectors.py status
   az login
   ```
+  Embedding requests start in batches and automatically bisect on an HTTP 400
+  caused by the service's aggregate token limit. If an `az account set` switch
+  leaves a valid cached token from another tenant, the first tenant-mismatch
+  response clears that cache and refreshes the token once.
 - **The five path env vars** — `COPILOT_HOME`, `LTM_WIKI_VAULT`,
   `LTM_MEMORY_DB`, `LTM_SESSION_DB`, `LTM_WIKI_WORKSPACE` — resolve through
   `wiki/config.py` in the order **argument → env var → `~/.copilot/wiki-config.json`
@@ -227,7 +231,7 @@ python wiki\test_vault_mcp.py
 ```
 
 The commands above were validated from this checkout on 2026-09-03:
-**293 tests** (`unittest discover`), plus the two standalone harnesses —
+**296 tests** (`unittest discover`), plus the two standalone harnesses —
 `test_bootstrap.py` stands up empty / memory-only / full modes from nothing in a
 temp directory, and
 `test_vault_mcp.py` drives the MCP server over real stdio JSON-RPC. Treat the

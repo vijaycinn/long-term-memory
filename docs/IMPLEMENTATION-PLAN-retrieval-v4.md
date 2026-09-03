@@ -116,7 +116,7 @@ The reranker measurement was mixed, not a clean win: local (n=13) Recall@5 / Rec
    all `CREATE TABLE IF NOT EXISTS` with a `schema_version` table currently at
    **v3** (`setup/init-memory.sql:11-12`); the upgrade path is
    `core/memory_driver.py:548 migrate()`. Bump to v4 and extend `migrate()`.
-4. **Tests must stay green.** 293 unittest methods plus two harnesses:
+4. **Tests must stay green.** 296 unittest methods plus two harnesses:
    ```powershell
    $env:PYTHONIOENCODING = "utf-8"
    python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -t tests
@@ -155,7 +155,7 @@ priority order: `~/.copilot/session-store.db` user messages; the vault's
 
 ## PHASE 1 — Free wins. No dependency, no model, no index. [Implemented]
 
-> **Status:** Code implemented (`wiki/vault_mcp.py`, `core/memory_driver.py`, `ops/backfill_entity_mentions.py`, `hooks/ltm_session_end.py`). 293 unittests pass; bootstrap and MCP protocol harnesses are green.
+> **Status:** Code implemented (`wiki/vault_mcp.py`, `core/memory_driver.py`, `ops/backfill_entity_mentions.py`, `hooks/ltm_session_end.py`). 296 unittests pass; bootstrap and MCP protocol harnesses are green.
 
 ### T1.1 — Traverse the edges that already exist ★ highest leverage [Implemented]
 
@@ -302,7 +302,7 @@ without a recorded mode or a controlled re-verification.
 ## PHASE 3 — Stop Injecting Blind [Implemented]
 
 > **Status:** Implemented in `hooks/ltm_session_start.py` (T3.1); covered by the
-> current 293-test suite. Live activation was not reverified in this audit.
+> current 296-test suite. Live activation was not reverified in this audit.
 > **Scope Clarification:** Phase 3 modifies prompt-aware fact injection into `memory-context.md` at session initialization. It does **not** alter `vault_search` page retrieval or ranking.
 
 ### T3.1 — Use `initialPrompt` at session start [Implemented]
@@ -360,7 +360,7 @@ cover, grounded in the audit:
   context bridge silently renders no identity section and the peer never learns
   why. This is the single most likely "it doesn't work" report.
 - **Verify:** `python wiki\test_bootstrap.py`, `python wiki\test_vault_mcp.py`,
-  then the 293-test suite. Restart the CLI — MCP servers and hooks load at
+  then the 296-test suite. Restart the CLI — MCP servers and hooks load at
   session start only.
 - **Upgrading an existing DB:** run `migrate()`. **No installer calls it
   automatically** (`core/memory_driver.py:548`). Say so.
@@ -423,7 +423,7 @@ are included in the following documentation commit.
 | Priority | Work | Current Evidence | Completion Proof |
 |---|---|---|---|
 | **P0** | Reconcile benchmark artifacts. Generate a 57-query `--oracle` artifact with revision, diff, pages, chunks, dimensions, and model provenance. | `oracle-ceiling-2026-09-02.json` is 27 queries at 21/27 Recall@20. The 51/57 result lives in normal retrieval output, not an oracle artifact. | Checked-in 57-query oracle whose metrics match the plan and whose run used a stable full index. |
-| **P1** | Verify peer installation on a clean Windows profile or machine. | Temp-directory bootstrap, 293 unittests, and MCP 9/9 pass; neither PowerShell installer has a clean-machine integration run. | Both installers create correct DB, hooks, MCP JSON, identity, restart behavior, and optional seed behavior from a fresh clone. |
+| **P1** | Verify peer installation on a clean Windows profile or machine. | Temp-directory bootstrap, 296 unittests, and MCP 9/9 pass; neither PowerShell installer has a clean-machine integration run. | Both installers create correct DB, hooks, MCP JSON, identity, restart behavior, and optional seed behavior from a fresh clone. |
 | **P1** | Fix remaining path portability defects. | `install-wiki.ps1` checks only `$COPILOT_HOME\memory.db` instead of `LTM_MEMORY_DB`; `install-memory.ps1` scans default `%USERPROFILE%\.copilot` agent paths instead of custom `COPILOT_HOME`. | Targeted tests or isolated install prove both custom paths work. |
 | **P1** | Verify live hook activation without assuming access to user settings. | Code and installer exist; checked-in template has empty `sessionStart`; user-level settings inspection was not authorized. | User-authorized config inspection or observed behavior in a fresh CLI session. |
 | **P2** | Strengthen integration regression coverage. | Reranker helpers and sync subprocess dispatch are tested, but no direct test proves `vault_search(mode="hybrid")` invokes reranking; no repository test proves the live `Remember-This → Sync-Vault → rank 1` path. | Narrow integration tests cover those two acceptance paths without mutating the maintainer's live stores. |
@@ -435,7 +435,7 @@ are included in the following documentation commit.
 - [x] Phase 1 graph traversal (`hops`), entity backfill, and session-end hooks implemented — note `hops=1` measurably did **not** improve recall and is an exploration aid, not a ranking win
 - [x] Phase 2 vector sidecar (`sqlite-vec`), chunking, sidecar BM25, and hybrid RRF implemented
 - [x] Phase 3 prompt-aware `initialPrompt` fact injection implemented and tested in `hooks/ltm_session_start.py` — live registration was not reverified because user-level settings inspection was not authorized
-- [x] **293** unittest methods + bootstrap + MCP protocol tests passing green
+- [x] **296** unittest methods + bootstrap + MCP protocol tests passing green
 - [x] **T2.4:** `ops/retrieval_bench.py` adapter bug fixed (regex handles leading whitespace / padded markers)
 - [x] **T2.4:** `expect_facts` populated in golden set and `hops=1` benchmark strategy added
 - [x] **T2.5:** PowerShell `Search-Memory` and MCP `memory_search` rankings verified identical

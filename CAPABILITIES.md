@@ -10,7 +10,7 @@ design together, and how to extend it safely.
 | **Schema version** | **3** |
 | Driver ops | 15 |
 | PowerShell cmdlets | 26 |
-| Tests | **293** unittest across 13 files, plus 2 standalone harnesses |
+| Tests | **296** unittest across 13 files, plus 2 standalone harnesses |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
 
@@ -247,6 +247,8 @@ now covered by a test. **If you change the relevant code, run the tests.**
 | 16 | `topic_slug` in a batch silently created a **global** fact | `add_fact` only accepted `topic_id` | `add_fact` resolves `topic_slug` | `TestBatch` |
 | 17 | `memory_export.py` crashed on Windows *after* writing the file | Emoji printed to a cp1252 console → `UnicodeEncodeError`, so success looked like failure | Force UTF-8 stdout | — |
 | 18 | JSON export silently dropped **194 rows** of behavioural memory | The table list omitted `ltm_patterns` (138) and `ltm_session_log` (56); only `memory_fts*` should be excluded, since that alone is derived | Both added; portable export exposes them as `patterns` / `sessions` | — |
+| 19 | 64 valid embedding inputs returned HTTP 400 | Azure applies an aggregate token budget to the request; 64 ~1,200-character chunks exceeded it | Recursively bisect HTTP-400 batches while preserving result order | `EmbedFallbackTests` |
+| 20 | Switching Azure subscriptions left a valid cached token for the wrong tenant | Token cache lifetime exceeded the active-subscription context | On the specific tenant-mismatch 400, clear and refresh the token once | `EmbedFallbackTests` |
 | 19 | `add_snapshot` with `topic_slug` raised `KeyError('topic_id')` and the snapshot was **silently lost** | Same gap as #16 in a different op — only `topic_id` was accepted | Resolves `topic_slug`; returns a clear error for an unknown slug | `TestBatch` |
 | 20 | `touch_topic` took `slug` while `add_fact` / `add_snapshot` took `topic_slug` | Inconsistent key naming across topic-referencing ops — same trap, but at least it failed loudly | `topic_slug` accepted as an alias; unknown slug now errors instead of silently updating nothing | `TestTopicReferenceContract` |
 | 21 | **`vault_mcp` `memory_search` returned the wrong facts** — every hit resolved to a different record than the one that matched (measured 5/5 wrong). Worse than empty results, since it reads as a confident answer | `_fts_query` joined `facts.id = memory_fts.rowid`. `memory_fts` is a **combined** index over facts/entities/topics/snapshots, so its implicit rowid is its own sequence (924 rows, max 1127) and is unrelated to `facts.id` (669 rows, max 683). This violates the rule already stated in `init-memory.sql`: *row_id is only unique within a table_name bucket — never join on row_id alone*. It shipped because `wiki/test_bootstrap.py` declared a simplified `fts5(content)` keyed by rowid, so the wrong join passed in tests; and `test_vault_mcp.py` never exercised `memory_search` at all | Join on `m.row_id AND m.table_name = 'facts'`. Fixture now mirrors the production 3-column schema and offsets the FTS rowid sequence so a rowid join cannot line up by coincidence | `test_vault_mcp.py` id=9 — asserts every returned fact **contains the search term**, not merely that a response arrived (mutation-tested: reintroducing the join fails 4/5) |
@@ -392,7 +394,6 @@ through `_md_inline`, and return a `*_loaded` count. Assert the section in
    `test_migrate_upgrades_legacy_index`.
 
 ### Ideas worth adding
-- Semantic/embedding search alongside FTS for concept recall
 - Fact confidence decay over time
 - Automatic contradiction resolution (`ltm_lint` detects; nothing resolves)
 - Cross-machine sync beyond `-MirrorDir`
@@ -415,7 +416,7 @@ python wiki\test_vault_mcp.py
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
 | `test_vault_vectors.py` | 42 | Boilerplate stripping, chunking, content hashing, FTS sanitising, RRF fusion, degradation and safe limited indexing |
-| `test_vault_embed.py` | 15 | Token expiry states, the `az login` nudge, every embed fallback path |
+| `test_vault_embed.py` | 18 | Token expiry states, the `az login` nudge, HTTP-400 batch splitting, tenant-switch refresh, and fallback paths |
 | `test_vault_mcp_rank.py` | 17 | **bm25 sign trap** (mutation-tested), rare-term ranking, candidate-pool direction, entity co-mention caps, `hops=0` byte-identity |
 | `test_vault_rerank.py` | 4 | Page-level reranking signals, title guard, stable ordering and failure fallback |
 | `test_backfill_entity_mentions.py` | 1 | Fact-level entity-edge backfill |
@@ -424,7 +425,7 @@ python wiki\test_vault_mcp.py
 | `test_session_start.py` | 13 | sessionStart hook, incl. prompt-aware retrieval (empty/short/long/punctuation) |
 | `test_session_end.py` | 10 | sessionEnd hook, incl. fact-level entity edges |
 | `test_retrieval_bench.py` | 10 | Golden-set schema, recall/MRR arithmetic, compare deltas and oracle metrics |
-| **Total** | **293** | |
+| **Total** | **296** | |
 
 Two standalone harnesses run outside `unittest`:
 

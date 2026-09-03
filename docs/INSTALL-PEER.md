@@ -242,6 +242,12 @@ present, so that class is unreachable without embeddings.
 `text-embedding-3-small` deployment, and the Azure CLI. There is no API key to
 manage — auth is a bearer token from your own `az login`.
 
+If you change subscriptions with `az account set`, an existing cached token may
+still belong to the previous tenant. The embedding client detects the specific
+tenant-mismatch response, clears the cache, and refreshes once. Oversized
+multi-input requests are also bisected automatically when Azure returns HTTP
+400 for the aggregate token budget.
+
 ```powershell
 pip install sqlite-vec          # the ONLY pip dependency in this repo, and it is optional
 az login
@@ -332,7 +338,7 @@ python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -
 Healthy output ends with the greenfield bootstrap success message, the MCP
 test's response summary with zero problems, and `OK` from unittest discovery.
 Validated from this checkout on 2026-09-03: bootstrap PASS, MCP test 9/9 OK,
-and **293 tests, OK** from unittest discovery. The three commands are the
+and **296 tests, OK** from unittest discovery. The three commands are the
 repository's standard test sequence.
 
 Then completely restart Copilot CLI. MCP servers and hooks load at session
