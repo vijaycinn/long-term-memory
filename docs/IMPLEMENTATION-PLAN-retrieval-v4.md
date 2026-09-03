@@ -1,20 +1,41 @@
 # Implementation Plan — Retrieval v4
 
 **Target repo:** `vijaycinn/long-term-memory`
-**Written:** 2026-09-02 · **Updated:** 2026-09-02
-**Status:** In Progress (Phases 0–3 implemented; Phase 2 measured and tuned on the restored index; Phase 4 portability fixes partial)
+**Written:** 2026-09-02 · **Updated:** 2026-09-03
+**Status:** Core implementation complete locally; validation green; release closeout incomplete
 **Audience:** an implementing agent. Every task is scoped, testable and reversible.
 
 ---
 
-## 0. Implementation Status & Audit Summary (as of 2026-09-02)
+## 0. Implementation Status & Audit Summary (audited 2026-09-03)
 
-| Phase / Task | Implementation Status | Test & Benchmark Findings | Next Action / Gate |
-|---|---|---|---|
-| **Phase 0** (T0.1, T0.2) | **Implemented** (`queries.json`, `retrieval_bench.py`) | 27 golden queries defined. T2.4 fixed padded-marker parsing, populated `expect_facts`, and added `vault_current_hops1`. Valid full-index pre-reranker baseline: Recall@5 **16/27 (59.3%)**, MRR **0.364** overall, measured against **619 pages / 7,940 chunks**. Final artifact is now provenance-bearing at **648 pages / 8,279 chunks**. | Complete |
-| **Phase 1** (T1.1–T1.5) | **Implemented** in code (`vault_mcp.py`, `entity_mentions`) | Link traversal (`hops`), FTS BM25 + importance blend, entity backfill, and session-end hook active. T2.5 reconciled CLI/MCP ordering. | Complete |
-| **Phase 2** (T2.1–T2.9) | **Implemented and measured** in code (`vault_vectors.py`, `vault_mcp.py`, `vault_rerank.py`) | Final chosen `RELAXED_RRF_K = 120` on **648 pages / 8,279 chunks**: overall Recall@5 **0.667** and MRR **0.472**. g04 is back in the pool at rank **18** but remains outside top 10; g26 is rank **10**. K=120 is a qualified candidate-pool improvement, not a clean metric win. | Complete measurement; tune only with broader evaluation; T2.3 remains **GO** |
-| **Phase 3** (T3.1) | **Implemented** in code (`hooks/ltm_session_start.py`) | `initialPrompt` prompt-aware fact injection into `memory-context.md`. Does not alter vault-page search metrics. | Complete |
+Status vocabulary in this table is deliberate:
+
+- **Implemented** — code exists in the working tree.
+- **Tested** — repository tests or a named artifact exercise the claim.
+- **Pushed** — current behavior is reachable from `origin/main`.
+- **Active** — verified in the maintainer's live runtime, not merely installable.
+
+| Phase / Task | Implemented | Tested | Repository Sync | Active / Remaining Gate |
+|---|---|---|---|---|
+| **Phase 0** (T0.1, T0.2) | **Yes.** Harness, parser fix, oracle mode, five strategies, 57-query set, and provenance sidecar exist. | **Yes.** Retrieval benchmark tests pass. The set is **57 queries**: 36 session-provenanced and 21 owner-curated. | **Local commit only.** Current files are in `e89946f`, one commit ahead of `origin/main`. | **Artifact closeout remains.** The checked-in oracle is still the old 27-query run; the reported 51/57 result is normal retrieval, not a 57-query oracle. |
+| **Phase 1** (T1.1–T1.5) | **Yes.** Graph expansion, ranking, entity backfill, and session-end edge capture exist. | **Yes.** Unit coverage passes; `hops=1` is an exploration aid and did not improve benchmark recall. | **Base implementation pushed.** Current integrated versions of shared files also contain local-only `e89946f` changes. | Live hook activation was **not reverified** in this audit. |
+| **Phase 2** (T2.1–T2.9, including T2.3) | **Yes.** Vector sidecar, hybrid RRF, relaxed BM25, page reranker, contextual chunking, and auto-index exist. | **Mostly.** All targeted tests pass. Reranker helpers and sync dispatch are covered; direct hybrid-reranker invocation and the claimed live `Remember-This` end-to-end path are not repository regression tests. | **Local commit only.** Completion is in `e89946f`; `origin/main` stops before these integrated changes. | Reconcile the 57-query oracle artifact and avoid claiming the live sidecar's contextual mode unless recorded or reverified. |
+| **Phase 3** (T3.1) | **Yes.** Prompt-aware `initialPrompt` fact injection exists. | **Yes.** Empty, short, long, and punctuation-heavy prompts are covered. | **Pushed** in `ced1dd7`. | **Activation unverified.** The checked-in config template keeps `sessionStart` empty; the installer registers the hook. User-level settings were not authorized for inspection. |
+| **Phase 4** (P4.0–P4.3) | **Partial.** B2/B4 and the guide exist; the local neutral seed exists. | **Partial.** Bootstrap proves generated-path portability, but no clean-machine installer test exists. | **Mixed.** Older guide and portability fixes are pushed; current guide/docs are in local-only `e89946f`; neutral `setup/seed_memory.py` is ignored and untracked. | B1 access policy, B3 seed distribution, clean-machine verification, two path defects, and stale docs remain. |
+
+### 0.0.1 Git and release snapshot
+
+| Layer | Revision / State | Meaning |
+|---|---|---|
+| `origin/main` | `5409c4c` | Pushed repository. Its implementation plan still says **proposed, not started**. |
+| Local `main` before this audit edit | `e89946f` | **Ahead 1, behind 0.** Contains the 26-file Retrieval v4 completion commit. |
+| This 2026-09-03 audit update | Working-tree change to this plan | Not committed or pushed until a later explicit Git action. |
+
+**Answer to "did Copilot finish it?":** it finished the core code and repository
+test work, but it did **not** finish release closeout. The unpushed completion
+commit, inconsistent benchmark artifacts, untracked neutral seed, unverified
+live activation, and unverified peer install prevent a "fully finished" status.
 
 **The core diagnostic insight:** Dense embeddings + RRF hybrid fusion cured the structurally-zero vocabulary failure, but raw BM25 still had a long-query recall bug until T2.9. The selected relaxed-OR displacement repair improves candidate-pool coverage without improving Recall@5: at K=120, MRR is **0.472** versus **0.488** at K=60, while g04 returns at pool rank 18 and g26 reaches rank 10. This is a qualified structural repair, not a net metric win.
 
@@ -84,7 +105,7 @@ The reranker measurement was mixed, not a clean win: local (n=13) Recall@5 / Rec
    all `CREATE TABLE IF NOT EXISTS` with a `schema_version` table currently at
    **v3** (`setup/init-memory.sql:11-12`); the upgrade path is
    `core/memory_driver.py:548 migrate()`. Bump to v4 and extend `migrate()`.
-4. **Tests must stay green.** 258 unittest methods plus two harnesses:
+4. **Tests must stay green.** 281 unittest methods plus two harnesses:
    ```powershell
    $env:PYTHONIOENCODING = "utf-8"
    python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -t tests
@@ -99,14 +120,17 @@ The reranker measurement was mixed, not a clean win: local (n=13) Recall@5 / Rec
 
 ---
 
-## PHASE 0 — Baseline & Measurement Harness [Implemented]
+## PHASE 0 — Baseline & Measurement Harness [Implemented; artifact closeout open]
 
-> **Status:** Implemented (`tests/golden/queries.json`, `ops/retrieval_bench.py`). T2.4 adapter and metric-completeness fixes are complete; a fresh full-index final artifact is pending sidecar restoration.
+> **Status:** Implemented (`tests/golden/queries.json`, `tests/golden/provenance.json`,
+> `ops/retrieval_bench.py`). Parser and strategy coverage are complete. The
+> current 57-query set lacks a matching checked-in 57-query oracle artifact.
 
 ### T0.1 — Build a golden query set [Implemented]
 
 **File:** `tests/golden/queries.json`
-**Status:** Implemented (27 golden queries: 13 local, 11 paraphrase, 3 multihop).
+**Status:** Implemented (57 golden queries: 25 local, 27 paraphrase, 5 multihop;
+36 session-provenanced and 21 owner-curated).
 **Do:** Extract 25–30 real questions actually asked of this vault. Sources, in
 priority order: `~/.copilot/session-store.db` user messages; the vault's
 `log.md`; `01-Activity/Sessions/`. Prefer questions whose answers are known.
@@ -120,7 +144,7 @@ priority order: `~/.copilot/session-store.db` user messages; the vault's
 
 ## PHASE 1 — Free wins. No dependency, no model, no index. [Implemented]
 
-> **Status:** Code implemented (`wiki/vault_mcp.py`, `core/memory_driver.py`, `ops/backfill_entity_mentions.py`, `hooks/ltm_session_end.py`). 258 unittests pass; bootstrap and MCP protocol harnesses are green.
+> **Status:** Code implemented (`wiki/vault_mcp.py`, `core/memory_driver.py`, `ops/backfill_entity_mentions.py`, `hooks/ltm_session_end.py`). 281 unittests pass; bootstrap and MCP protocol harnesses are green.
 
 ### T1.1 — Traverse the edges that already exist ★ highest leverage [Implemented]
 
@@ -179,7 +203,7 @@ priority order: `~/.copilot/session-store.db` user messages; the vault's
 **Status:** Implemented.
 **Why:**
 1. `_current_vault()` line-matching bug falsely dropped padded `[  hybrid]` lines to `0.000`.
-2. All 27 golden queries have empty `expect_facts: []`, making fact-level ranking unmeasurable.
+2. The original 27-query set had empty `expect_facts: []`, making fact-level ranking unmeasurable. The current 57-query set has fact expectations for 20 queries; page-level metrics cover all 57.
 3. No `hops=1` strategy exists in the benchmark to prove graph traversal value.
 **Do:**
 - Fix `ops/retrieval_bench.py:116-124` regex to parse any `[<mode>]` prefix regardless of leading whitespace.
@@ -251,18 +275,23 @@ The **2/11→3/11** measurement was taken against the earlier healthy **619-page
 
 K=120 is the lowest intervention above 60 that restores candidate-pool coverage for g04 and top-10 coverage for g26 while preserving Recall@5. It is selected on principled least-intervention grounds, not by maximizing the metric. Held-out support is weak: g17 and g20 did not improve, and g04/g26 motivated the repair.
 
-### T2.3 — Contextual Chunking (P2 — Conditional)
+### T2.3 — Contextual Chunking (P2 — Implemented)
 
-**File:** `wiki/vaultlib.py`
+**File:** `wiki/vault_vectors.py`
 **Why:** If T2.8 shows specific queries missing from the top-20 candidate pool altogether (e.g. CU token billing), prepend 50–100 token contextual headers to chunks during indexing to expand initial candidate recall.
-**Status:** **GO**, based on T2.8's six top-20 misses, with a small-sample caveat: one query changes the overall rate by **3.7 percentage points**. Not implemented in this closeout.
+**Status:** Implemented and covered by contextual-indexing and sync-default tests.
+The 15-query real GCC/Content-Understanding litmus improved Hit@1 **7/15→10/15**,
+Hit@3 **9/15→12/15**, and MRR **0.56→0.75**, with seven improvements and no
+regressions. The current sidecar reports 651 pages / 8,285 chunks, but its status
+schema does not persist chunking mode; do not call contextual promotion active
+without a recorded mode or a controlled re-verification.
 
 ---
 
 ## PHASE 3 — Stop Injecting Blind [Implemented]
 
 > **Status:** Implemented in `hooks/ltm_session_start.py` (T3.1); covered by the
-> current 258-test suite.
+> current 281-test suite. Live activation was not reverified in this audit.
 > **Scope Clarification:** Phase 3 modifies prompt-aware fact injection into `memory-context.md` at session initialization. It does **not** alter `vault_search` page retrieval or ranking.
 
 ### T3.1 — Use `initialPrompt` at session start [Implemented]
@@ -292,7 +321,7 @@ is a genuine greenfield proof that runs entirely in a temp directory.
 |---|---|---|
 | **B1** | **Open:** repo is private under the personal `vijaycinn` account. A peer on a `_microsoft` EMU account gets a misleading `Repository not found`, and an EMU user cannot fork outside the enterprise. No script fixes this. | Move to an org repo, or add the peer as a collaborator. Policy decision, not code. |
 | **B2** | **Resolved:** `copilot-config/hooks/hook-guard.json` had absolute paths and referenced a missing script, so a peer could register dead hooks. | Generate it from `$RepoRoot` in `install-memory.ps1`; remove the missing reference. |
-| **B3** | **Open:** `setup/seed_memory.py` seeds the **VOF grievance dataset** — named individuals, HR-sensitive claims — behind a flag called `-SeedExampleData`. Opt-in, but the name actively misleads. | Replace with neutral sample data, or rename the flag `-SeedVofData` and document it. **Do not ship personal HR data to a peer.** |
+| **B3** | **Partially resolved:** the host has a neutral synthetic `setup/seed_memory.py`, but `.gitignore` ignores `seed_memory.py` and `git ls-files` confirms the file is absent from `HEAD`. A peer clone therefore receives no seed file and the installer warns and skips it. | Track the neutral seed and narrow/remove the ignore rule, or remove the seed option and its documentation. |
 | **B4** | **Resolved:** `wiki/build.py` wrote machine-specific instructions into the peer's generated index page. | Interpolate from `config.paths()` / `Path(__file__)`. |
 
 ### P4.1 — Peer install guide
@@ -320,7 +349,7 @@ cover, grounded in the audit:
   context bridge silently renders no identity section and the peer never learns
   why. This is the single most likely "it doesn't work" report.
 - **Verify:** `python wiki\test_bootstrap.py`, `python wiki\test_vault_mcp.py`,
-  then the 258-test suite. Restart the CLI — MCP servers and hooks load at
+  then the 281-test suite. Restart the CLI — MCP servers and hooks load at
   session start only.
 - **Upgrading an existing DB:** run `migrate()`. **No installer calls it
   automatically** (`core/memory_driver.py:548`). Say so.
@@ -347,8 +376,11 @@ Update `README.md` and `CAPABILITIES.md` for anything Phase 1–3 adds: the `hop
 argument, `mode` on `t_search`, the vector sidecar and its optional dependency,
 the backfill script, and schema v4 if reached. `CAPABILITIES.md` is the
 documented entry point for agents working on this repo — if it is not there, the
-next agent will not find it. **Status:** Implemented in both documents, including
-the reranker, vector modes, and `hops=1` surface.
+next agent will not find it. **Status:** Partially implemented. The new surface is
+documented, but test counts are stale, `README.md` still contains obsolete
+auto-index wording, `CAPABILITIES.md` still describes `--limit-pages` as
+destructive after the preservation fix, and `copilot-config/README.md` says the
+guard has three scripts while the template has four.
 
 ---
 
@@ -377,29 +409,46 @@ the reranker, vector modes, and `hops=1` surface.
 [Phase 4] P4.0–P4.3 Peer Installation & Documentation (Independent, can run in parallel)
 ```
 
+## Remaining Work — canonical inventory (2026-09-03)
+
+| Priority | Work | Current Evidence | Completion Proof |
+|---|---|---|---|
+| **P0** | Reconcile benchmark artifacts. Generate a 57-query `--oracle` artifact with revision, diff, pages, chunks, dimensions, and model provenance. | `oracle-ceiling-2026-09-02.json` is 27 queries at 21/27 Recall@20. The 51/57 result lives in normal retrieval output, not an oracle artifact. | Checked-in 57-query oracle whose metrics match the plan and whose run used a stable full index. |
+| **P0** | Publish the completed implementation after review. | Local `main` is one commit ahead: `e89946f`; `origin/main` is `5409c4c`. This audit edit is newer and uncommitted. | Reviewed commit(s) pushed; `git rev-list --left-right --count origin/main...HEAD` returns `0 0`. |
+| **P1** | Make the neutral seed portable. | `setup/seed_memory.py` is neutral locally but ignored and absent from Git. | Peer clone contains the neutral seed, or the installer/docs no longer offer seeding. |
+| **P1** | Verify peer installation on a clean Windows profile or machine. | Temp-directory bootstrap, 281 unittests, and MCP 9/9 pass; neither PowerShell installer has a clean-machine integration run. | Both installers create correct DB, hooks, MCP JSON, identity, restart behavior, and optional seed behavior from a fresh clone. |
+| **P1** | Fix remaining path portability defects. | `install-wiki.ps1` checks only `$COPILOT_HOME\memory.db` instead of `LTM_MEMORY_DB`; `install-memory.ps1` scans default `%USERPROFILE%\.copilot` agent paths instead of custom `COPILOT_HOME`. | Targeted tests or isolated install prove both custom paths work. |
+| **P1** | Verify live hook activation without assuming access to user settings. | Code and installer exist; checked-in template has empty `sessionStart`; user-level settings inspection was not authorized. | User-authorized config inspection or observed behavior in a fresh CLI session. |
+| **P2** | Reconcile stale docs. | README/CAPABILITIES test counts differ from 281; auto-index and `--limit-pages` statements are stale; hook count says three instead of four. | Documentation agrees with current code and the 281-test result. |
+| **P2** | Strengthen integration regression coverage. | Reranker helpers and sync subprocess dispatch are tested, but no direct test proves `vault_search(mode="hybrid")` invokes reranking; no repository test proves the live `Remember-This → Sync-Vault → rank 1` path. | Narrow integration tests cover those two acceptance paths without mutating the maintainer's live stores. |
+| **Policy** | Resolve B1 repository access. | Private personal repo plus EMU restrictions can produce masked 404 errors and prevent external forks. | Peer has collaborator access or repository is moved to an approved organization. |
+
 ## Definition of Done
 
 - [x] Phase 0 golden query set created — **rebuilt 2026-09-02 to 57 queries** (36 session-provenanced from 3,223 real turns + 21 owner-curated, honestly labelled). The original 27-query set's `paraphrase` class was **synthetic**: zero occurrences of any of its phrasings in `session-store.db` over 180 days. Provenance now lives in `tests/golden/provenance.json` and is enforced by a test, so the defect cannot silently return.
 - [x] Phase 1 graph traversal (`hops`), entity backfill, and session-end hooks implemented — note `hops=1` measurably did **not** improve recall and is an exploration aid, not a ranking win
 - [x] Phase 2 vector sidecar (`sqlite-vec`), chunking, sidecar BM25, and hybrid RRF implemented
-- [x] Phase 3 prompt-aware `initialPrompt` fact injection implemented in `hooks/ltm_session_start.py` — **implemented but not active**: `ltm_session_start.py` is not registered in the maintainer's live `settings.json`
+- [x] Phase 3 prompt-aware `initialPrompt` fact injection implemented and tested in `hooks/ltm_session_start.py` — live registration was not reverified because user-level settings inspection was not authorized
 - [x] **281** unittest methods + bootstrap + MCP protocol tests passing green
 - [x] **T2.4:** `ops/retrieval_bench.py` adapter bug fixed (regex handles leading whitespace / padded markers)
 - [x] **T2.4:** `expect_facts` populated in golden set and `hops=1` benchmark strategy added
 - [x] **T2.5:** PowerShell `Search-Memory` and MCP `memory_search` rankings verified identical
-- [x] **T2.6:** Resolved as a **false positive**, not a fix. The apparent placeholder in the 
+- [x] **T2.6:** Resolved as a **false positive**, not a source fix. The apparent placeholder was display-time secret redaction; a regression test protects bearer-header formatting.
 - [x] **T2.7:** Stdlib page-level reranker implemented and measured. Large win where page titles carry the query's vocabulary (local recall@5 0.692 → 0.846); no effect on paraphrase, which its 0.08 semantic weight predicts. A cross-encoder was deliberately **not** built — it would violate the stdlib-only constraint.
-- [x] **T2.8:** Candidate-pool Oracle (`--oracle`) implemented. Final: **51/57 (89.5%)** on the corrected set at **8,285 chunks / 651 pages** — local 25/25, paraphrase 21/27, multihop 5/5. Six genuine top-20 misses remain: `g04, g17, g26, g27, g31, g33`.
+- [x] **T2.8:** Candidate-pool Oracle (`--oracle`) implemented and tested.
+- [ ] **T2.8 artifact closeout:** generate a 57-query oracle artifact. The checked-in oracle is **21/27**; **51/57 (89.5%)** is current normal retrieval Recall@20 and must not be labelled as oracle output.
 - [x] **T2.9 / T2.9b:** BM25 AND-then-OR cascade restores long-query recall; `RELAXED_RRF_K = 120` chosen by sensitivity sweep as the lowest intervention that keeps `g04` in the candidate pool.
-- [x] **T2.3:** Contextual chunking implemented and **promoted to the live index**. Judged on the synthetic set it rescued 0/5 pool misses and looked worthless; on a 15-query real GCC/Content-Understanding litmus it delivered Hit@1 7/15 → 10/15, Hit@3 9/15 → 12/15, MRR 0.56 → 0.75, **seven improved and zero regressed**. The instrument, not the change, was the problem.
+- [x] **T2.3:** Contextual chunking implemented and tested. A historical 15-query real GCC/Content-Understanding litmus delivered Hit@1 7/15 → 10/15, Hit@3 9/15 → 12/15, MRR 0.56 → 0.75, **seven improved and zero regressed**. Current live-sidecar mode remains unverified because status metadata does not record chunking mode.
 - [x] Paraphrase recall@5 **>0.500** — **MET at 0.630** on the corrected 57-query set (same index, 8,285/651). Read this honestly: the target was originally set against the synthetic set, where the same code scored 0.182. Most of the movement came from fixing the benchmark, not the retriever.
 - [x] Fresh end-to-end benchmark artifact recorded with mandatory index provenance
-- [x] Fresh oracle artifact recorded with mandatory **pages/chunks** provenance
-- [x] **Sync-Vault auto-index** closes the stage-3 gap: captured facts previously never reached the vector index and were semantically invisible until a manual reindex. Verified end to end — `Remember-This` → `Sync-Vault` → vector hit at rank 1 in ~37s. `-NoIndex` opts out.
+- [x] Historical 27-query oracle artifact recorded with mandatory **pages/chunks** provenance
+- [x] **Sync-Vault auto-index** closes the stage-3 gap in code: sync dispatches indexing by default and `-NoIndex` opts out. Unit tests verify command construction and safe limited-index behavior. The reported live `Remember-This` → `Sync-Vault` → rank-1 run remains operational evidence, not a repository regression test.
 - [x] **P4.0-B2/B4:** Portability defects fixed without machine-specific paths in generated instructions
 - [x] **P4.2:** Stale test command corrected
+- [ ] **P4.0-B3:** neutral seed tracked in Git or seed option removed
 - [ ] `docs/INSTALL-PEER.md` checklist verified **on a clean machine** — guide written; clean-machine verification still outstanding and cannot be done from this host
-- [x] `README.md` and `CAPABILITIES.md` updated with new reranker and vector flags
+- [ ] `README.md`, `CAPABILITIES.md`, and `copilot-config/README.md` reconciled with current test count, auto-index behavior, safe limited indexing, and four-script hook guard
+- [ ] Retrieval v4 completion and this audit update pushed to `origin/main`
 
 ## What would make me abandon this plan
 
