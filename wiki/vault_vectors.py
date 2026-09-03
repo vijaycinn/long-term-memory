@@ -284,7 +284,8 @@ def index(vault: Path | None = None, db: Path | None = None,
     vault = Path(vault or paths["vault"])
     db = Path(db or paths["vault_vectors"])
     stats = {"pages": 0, "chunks": 0, "embedded": 0, "reused": 0,
-             "deleted": 0, "skipped_pages": 0, "ok": False}
+             "deleted": 0, "skipped_pages": 0, "pending": 0,
+             "partial": False, "ok": False}
 
     if _sqlite_vec() is None:
         print("[vault_vectors] sqlite-vec not installed — nothing to do.", file=sys.stderr)
@@ -340,6 +341,7 @@ def index(vault: Path | None = None, db: Path | None = None,
                 stats["reused"] += 1      # unchanged text: no API call
                 continue
             pending.append((rel, ix, h, indexed_text, preview))
+    stats["pending"] = len(pending)
 
     # A partial run owns only its selected paths; treating unseen out-of-scope
     # rows as stale was the destructive failure mode that erased the live index.
@@ -374,12 +376,14 @@ def index(vault: Path | None = None, db: Path | None = None,
               f"{stats['deleted']} removed")
 
     BATCH = 64
+    failed = False
     for i in range(0, len(pending), BATCH):
         group = pending[i:i + BATCH]
         vectors = vault_embed.embed([g[3] for g in group])
         if len(vectors) != len(group):
             print(f"[vault_vectors] embedding failed at batch {i // BATCH}; "
                   f"keeping {stats['embedded']} already written.", file=sys.stderr)
+            failed = True
             break
         for (rel, ix, h, _indexed_text, preview), vec in zip(group, vectors):
             prior = existing.get((rel, ix))
@@ -406,7 +410,8 @@ def index(vault: Path | None = None, db: Path | None = None,
                 (config.get("embed_deployment"),))
     con.commit()
     con.close()
-    stats["ok"] = True
+    stats["partial"] = failed and stats["embedded"] > 0
+    stats["ok"] = not failed and stats["embedded"] == len(pending)
     return stats
 
 

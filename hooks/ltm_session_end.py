@@ -342,16 +342,45 @@ def sync_obsidian_vault(hook_input, mode="memory-only"):
         return None  # best-effort; never break the hook
 
 
+def mark_obsidian_vault(hook_input, reason="sessionEnd memory write"):
+    """Mark the vault stale after this hook writes directly to memory.db."""
+    try:
+        wiki_dir = (hook_input.get("wiki_dir")
+                    or os.environ.get("LTM_WIKI_DIR")
+                    or os.path.join(os.path.dirname(os.path.abspath(__file__)), "wiki"))
+        sync_py = os.path.join(wiki_dir, "sync.py")
+        if not os.path.isfile(sync_py):
+            return None
+        proc = subprocess.run(
+            [sys.executable, sync_py, "--mark", reason],
+            cwd=wiki_dir, capture_output=True, text=True, timeout=30)
+        return {"returncode": proc.returncode}
+    except Exception:
+        return None
+
+
+def _memory_changed(session_result, agent_result):
+    if session_result is not None:
+        return True
+    if not isinstance(agent_result, dict):
+        return False
+    return any(int(agent_result.get(key) or 0) > 0 for key in (
+        "inserted", "topics_created", "superseded"))
+
+
 def main():
     try: hook_input = json.loads(sys.stdin.read())
     except (json.JSONDecodeError, EOFError): hook_input = {}
-    try: process_session(hook_input)
-    except Exception: pass  # hooks must never crash
+    try: session_result = process_session(hook_input)
+    except Exception:
+        session_result = None  # hooks must never crash
     # Pull in anything saved via the harness `store_memory` tool this session,
     # which otherwise lives only in the harness's own store and never reaches
     # the bridge. Must run BEFORE refresh_ltm_instructions so those facts are
     # included in the regenerated context.
-    sync_agent_memory(hook_input)
+    agent_result = sync_agent_memory(hook_input)
+    if _memory_changed(session_result, agent_result):
+        mark_obsidian_vault(hook_input)
     # After extracting new facts/entities, refresh the LTM instructions file
     # so the NEXT session starts with up-to-date memory context already baked in.
     refresh_ltm_instructions(hook_input)

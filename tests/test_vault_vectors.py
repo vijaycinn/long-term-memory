@@ -273,6 +273,30 @@ class IndexTests(unittest.TestCase):
         self.assertEqual(shadow["chunks"], before["chunks"])
         self.assertEqual(shadow["pages"], before["pages"])
 
+    def test_partial_embedding_is_not_reported_as_success(self):
+        for i in range(65):
+            (self.vault / f"page-{i:02d}.md").write_text(
+                f"# Page {i}\n\nUnique body {i} long enough to become an indexed chunk. "
+                + ("detail " * 20),
+                encoding="utf-8",
+            )
+        calls = 0
+
+        def fail_second_batch(texts):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return [[1.0, 0.0, 0.0] for _ in texts]
+            return []
+
+        vv.vault_embed.embed = fail_second_batch
+        stats = vv.index(self.vault, self.shadow, verbose=False, contextual=True)
+
+        self.assertFalse(stats["ok"])
+        self.assertTrue(stats["partial"])
+        self.assertEqual(stats["embedded"], 64)
+        self.assertGreater(stats["pending"], stats["embedded"])
+
 
 class PackTests(unittest.TestCase):
 

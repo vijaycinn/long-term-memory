@@ -68,11 +68,18 @@ def cmd_mark(reason: str) -> int:
 def cmd_status() -> int:
     p = config.paths()
     d = state_dir()
-    dirty = (d / "dirty")
+    dirty = d / "dirty"
+    processing = d / "dirty.processing"
+    pending = 0
+    for marker in (dirty, processing):
+        if marker.is_file():
+            try:
+                pending += len(marker.read_text(encoding="utf-8").splitlines())
+            except OSError:
+                pending += 1
     print(config.describe())
-    print(f"dirty         : {'yes' if dirty.is_file() else 'no'}"
-          + (f" ({len(dirty.read_text(encoding='utf-8').splitlines())} write(s) pending)"
-             if dirty.is_file() else ""))
+    print(f"dirty         : {'yes' if pending else 'no'}"
+          + (f" ({pending} write(s) pending)" if pending else ""))
     print(f"lock held     : {'yes' if (d / 'sync.lock').is_file() else 'no'}")
     last = d / "last-build.json"
     if last.is_file():
@@ -212,20 +219,49 @@ def _explain_index_failure(stderr: str) -> str:
     return f"unexpected failure -- {excerpt[:200]}"
 
 
-def _sync_vector_index(vault: Path, db: Path, quiet: bool, no_index: bool) -> None:
+def _restore_processing_marker(processing: Path, dirty: Path) -> None:
+    """Return the captured marker to the pending queue after a failed sync."""
+    if not processing.is_file():
+        return
+    try:
+        content = processing.read_text(encoding="utf-8")
+        if content:
+            with dirty.open("a", encoding="utf-8") as fh:
+                fh.write(content)
+        processing.unlink(missing_ok=True)
+    except OSError:
+        # Leaving dirty.processing in place is safe: status reports it and the
+        # next sync retries it rather than silently declaring the vault current.
+        pass
+
+
+def _claim_dirty_marker(dirty: Path, processing: Path) -> None:
+    """Move the current write set aside so later writes remain independently pending."""
+    if processing.is_file():
+        _restore_processing_marker(processing, dirty)
+    if dirty.is_file():
+        os.replace(dirty, processing)
+
+
+def _sync_vector_index(vault: Path, db: Path, quiet: bool, no_index: bool) -> dict:
     """Embed vault pages changed by the rebuild that just completed.
 
     Called from inside cmd_sync's own lock, after its build succeeds, so this
     can never race a second sync's indexer against the same sqlite file.
-    Degrades to nothing -- never an error -- for the same reasons vault_embed
-    and vault_vectors already do, but every branch here still prints (unless
-    -Quiet): a *visible* skip is the whole fix, since a silent one is exactly
-    what let captured facts go unembedded for weeks before this was noticed.
+    Returns an explicit state so callers can distinguish current, disabled,
+    unavailable and failed semantic indexing. Only configured attempts that
+    fail are errors; intentional opt-out and unavailable configuration leave
+    the freshly rebuilt lexical pages current.
     """
     if _index_opt_out(no_index):
         if not quiet:
             print("[vault_vectors] index skipped (--no-index / LTM_VAULT_AUTOINDEX=0)")
-        return
+        return {
+            "state": "disabled",
+            "configured": None,
+            "current": False,
+            "reason": "explicit opt-out",
+        }
 
     try:
         if str(HERE) not in sys.path:
@@ -235,15 +271,32 @@ def _sync_vector_index(vault: Path, db: Path, quiet: bool, no_index: bool) -> No
         if not quiet:
             print(f"[vault_vectors] vector layer unavailable ({e}); pages are "
                   "current but not re-embedded", file=sys.stderr)
-        return
+        return {
+            "state": "unavailable",
+            "configured": bool(config.get("embed_endpoint")),
+            "current": False,
+            "reason": f"vector module unavailable: {e}",
+        }
 
     if not vv.available():
+        sqlite_vec = vv._sqlite_vec() is not None
+        endpoint = bool(config.get("embed_endpoint"))
+        reasons = []
+        if not sqlite_vec:
+            reasons.append("sqlite-vec not installed")
+        if not endpoint:
+            reasons.append("no embed_endpoint configured")
+        reason = " and ".join(reasons) or "vector layer unavailable"
         if not quiet:
-            print("[vault_vectors] index skipped: sqlite-vec not installed or "
-                  "no embed_endpoint configured. Check with "
+            print(f"[vault_vectors] index skipped: {reason}. Check with "
                   "`python wiki\\vault_vectors.py status`; if that looks "
                   "configured, try `az login`.")
-        return
+        return {
+            "state": "unavailable",
+            "configured": sqlite_vec and endpoint,
+            "current": False,
+            "reason": reason,
+        }
 
     contextual, mode_status, mode_detail = _detect_contextual_mode(vault, db, vv)
     if mode_status == "ambiguous":
@@ -255,7 +308,12 @@ def _sync_vector_index(vault: Path, db: Path, quiet: bool, no_index: bool) -> No
                   f"`python wiki\\vault_vectors.py index --contextual` (or "
                   f"without) after confirming the mode via "
                   f"`python wiki\\vault_vectors.py status`.", file=sys.stderr)
-        return
+        return {
+            "state": "failed",
+            "configured": True,
+            "current": False,
+            "reason": f"contextual mode ambiguous: {mode_detail}",
+        }
     if mode_status == "fresh":
         contextual = True   # nothing to match yet; this is the promoted mode
 
@@ -277,34 +335,73 @@ def _sync_vector_index(vault: Path, db: Path, quiet: bool, no_index: bool) -> No
                   f"Batches are committed as they land, so nothing already "
                   f"embedded is lost -- re-run Sync-Vault to pick up where it "
                   f"left off.", file=sys.stderr)
-        return
+        partial = (after["chunks"], after["pages"]) != (before["chunks"], before["pages"])
+        return {
+            "state": "partial" if partial else "failed",
+            "configured": True,
+            "current": False,
+            "reason": f"index timed out after {secs:.0f}s",
+            "before": before,
+            "after": after,
+        }
 
     secs = (datetime.now(timezone.utc) - started).total_seconds()
     if proc.returncode != 0:
+        after = vv.status(db)
+        reason = _explain_index_failure(proc.stderr)
         if not quiet:
-            print(f"[vault_vectors] index skipped: {_explain_index_failure(proc.stderr)}",
+            print(f"[vault_vectors] index failed: {reason}",
                   file=sys.stderr)
-        return
+        partial = (after["chunks"], after["pages"]) != (before["chunks"], before["pages"])
+        return {
+            "state": "partial" if partial else "failed",
+            "configured": True,
+            "current": False,
+            "reason": reason,
+            "before": before,
+            "after": after,
+        }
 
+    summary = _parse_index_summary(proc.stdout) or "index completed"
     if not quiet:
-        summary = _parse_index_summary(proc.stdout) or "index completed"
         print(f"[vault_vectors] {summary} in {secs:.1f}s")
+    return {
+        "state": "indexed",
+        "configured": True,
+        "current": True,
+        "summary": summary,
+        "seconds": round(secs, 3),
+    }
 
 
-def cmd_sync(full: bool, force: bool, quiet: bool, no_index: bool = False) -> int:
+def cmd_sync(full: bool, force: bool, quiet: bool, no_index: bool = False) -> dict:
     p = config.paths()
     if p["mode"] == "empty":
         if not quiet:
             print("nothing to build: no memory database found "
                   f"({p['memory_db']})")
-        return 0
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "pages": {"state": "unavailable", "current": False,
+                      "reason": "no memory database"},
+            "index": {"state": "not-run", "configured": False, "current": False},
+        }
 
     d = state_dir()
     dirty = d / "dirty"
-    if not dirty.is_file() and not force and not full:
+    processing = d / "dirty.processing"
+    if not dirty.is_file() and not processing.is_file() and not force and not full:
         if not quiet:
             print("wiki already current (no memory writes since last sync)")
-        return 0
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "pages": {"state": "current", "current": True,
+                      "mode": "incremental"},
+            "index": {"state": "not-run", "configured": None, "current": None,
+                      "reason": "no pending memory writes"},
+        }
 
     d.mkdir(parents=True, exist_ok=True)
     lock = d / "sync.lock"
@@ -313,10 +410,21 @@ def cmd_sync(full: bool, force: bool, quiet: bool, no_index: bool = False) -> in
     except FileExistsError:
         if not quiet:
             print("a sync is already running - skipping")
-        return 0
+        return {
+            "ok": False,
+            "exit_code": 0,
+            "pages": {"state": "busy", "current": False,
+                      "mode": "full" if full else "incremental"},
+            "index": {"state": "not-run", "configured": None, "current": False},
+        }
 
+    # Rotate the current write set after taking the sync lock. New memory writes
+    # create a fresh `dirty` marker while this build runs, so completing this
+    # sync can never erase work that arrived concurrently.
     started = datetime.now(timezone.utc)
+    complete = False
     try:
+        _claim_dirty_marker(dirty, processing)
         args = [sys.executable, str(HERE / "build.py")]
         if not full:
             args.append("--memory-only")
@@ -328,8 +436,14 @@ def cmd_sync(full: bool, force: bool, quiet: bool, no_index: bool = False) -> in
             log.write_text((proc.stdout or "") + "\n" + (proc.stderr or ""),
                            encoding="utf-8")
             print(f"sync FAILED (exit {proc.returncode}); see {log}", file=sys.stderr)
-            return proc.returncode        # marker deliberately left in place
-        dirty.unlink(missing_ok=True)
+            return {
+                "ok": False,
+                "exit_code": proc.returncode,
+                "pages": {"state": "failed", "current": False,
+                          "mode": "full" if full else "incremental",
+                          "error_log": str(log)},
+                "index": {"state": "not-run", "configured": None, "current": False},
+            }                              # marker deliberately left in place
         secs = (datetime.now(timezone.utc) - started).total_seconds()
         pages = ""
         for line in (proc.stdout or "").splitlines():
@@ -340,9 +454,30 @@ def cmd_sync(full: bool, force: bool, quiet: bool, no_index: bool = False) -> in
                   + (f" - {pages}" if pages else "") + f" in {secs:.1f}s")
         # Still inside the lock: a second sync cannot start its own indexer
         # against the same sqlite file while this one is embedding.
-        _sync_vector_index(p["vault"], p["vault_vectors"], quiet, no_index)
-        return 0
+        index_result = _sync_vector_index(
+            p["vault"], p["vault_vectors"], quiet, no_index)
+        if index_result["state"] in {"failed", "partial"}:
+            return {
+                "ok": False,
+                "exit_code": 4,
+                "pages": {"state": "rebuilt", "current": True,
+                          "mode": "full" if full else "incremental",
+                          "seconds": round(secs, 3)},
+                "index": index_result,
+            }                              # marker retained so the index retries
+        processing.unlink(missing_ok=True)
+        complete = True
+        return {
+            "ok": True,
+            "exit_code": 0,
+            "pages": {"state": "rebuilt", "current": True,
+                      "mode": "full" if full else "incremental",
+                      "seconds": round(secs, 3)},
+            "index": index_result,
+        }
     finally:
+        if not complete:
+            _restore_processing_marker(processing, dirty)
         os.close(fd)
         lock.unlink(missing_ok=True)
 
@@ -358,6 +493,8 @@ def main() -> int:
     ap.add_argument("--quiet", action="store_true")
     ap.add_argument("--no-index", action="store_true",
                     help="skip the vector-index step (or set LTM_VAULT_AUTOINDEX=0)")
+    ap.add_argument("--json", action="store_true",
+                    help="emit a final machine-readable sync result")
     a = ap.parse_args()
 
     try:
@@ -369,7 +506,10 @@ def main() -> int:
         return cmd_mark(a.mark)
     if a.status:
         return cmd_status()
-    return cmd_sync(a.full, a.force, a.quiet, a.no_index)
+    result = cmd_sync(a.full, a.force, a.quiet, a.no_index)
+    if a.json:
+        print(json.dumps(result, default=str))
+    return int(result["exit_code"])
 
 
 if __name__ == "__main__":

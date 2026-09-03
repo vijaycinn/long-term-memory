@@ -6,8 +6,50 @@
 # This avoids all PowerShell/Python quoting issues — strings pass through ConvertTo-Json.
 
 $script:MemoryDriver = Join-Path $PSScriptRoot "core\memory_driver.py"
-$script:MemoryDb = Join-Path $env:USERPROFILE ".copilot\memory.db"
-$script:MemoryContextFile = Join-Path $env:USERPROFILE ".copilot\memory-context.md"
+$script:MemoryDb = if ($env:LTM_MEMORY_DB) {
+    $env:LTM_MEMORY_DB
+} else {
+    Join-Path $env:USERPROFILE ".copilot\memory.db"
+}
+$script:MemoryContextFile = if ($env:LTM_MEMORY_CONTEXT) {
+    $env:LTM_MEMORY_CONTEXT
+} else {
+    Join-Path (Split-Path $script:MemoryDb -Parent) "memory-context.md"
+}
+
+function Assert-MemoryResult {
+    param(
+        [AllowNull()]$Value,
+        [string]$Path = "result"
+    )
+    if ($null -eq $Value) { return }
+    if ($Value -is [string] -or $Value.GetType().IsValueType) { return }
+    if ($Value -is [System.Collections.IDictionary]) {
+        foreach ($key in $Value.Keys) {
+            Assert-MemoryResult -Value $Value[$key] -Path "$Path.$key"
+        }
+        return
+    }
+    if ($Value -is [System.Array] -or $Value -is [System.Collections.IList]) {
+        $i = 0
+        foreach ($item in $Value) {
+            Assert-MemoryResult -Value $item -Path "$Path[$i]"
+            $i++
+        }
+        return
+    }
+    if ($Value.PSObject.TypeNames -notcontains 'System.Management.Automation.PSCustomObject') {
+        return
+    }
+    $names = @($Value.PSObject.Properties.Name)
+    if ($names -contains 'error' -and -not [string]::IsNullOrWhiteSpace([string]$Value.error)) {
+        $etype = if ($names -contains 'type' -and $Value.type) { $Value.type } else { "MemoryError" }
+        throw "memory op failed at $Path [$etype]: $($Value.error)"
+    }
+    foreach ($property in $Value.PSObject.Properties) {
+        Assert-MemoryResult -Value $property.Value -Path "$Path.$($property.Name)"
+    }
+}
 
 function Invoke-Memory {
     <#
@@ -17,6 +59,12 @@ function Invoke-Memory {
     param([Parameter(Mandatory)][hashtable]$Payload)
     if (-not (Test-Path $script:MemoryDriver)) {
         throw "memory_driver.py not found at $script:MemoryDriver"
+    }
+    if (-not $Payload.ContainsKey("db_path")) {
+        $Payload["db_path"] = $script:MemoryDb
+    }
+    if (-not $Payload.ContainsKey("context_path")) {
+        $Payload["context_path"] = $script:MemoryContextFile
     }
     $json = $Payload | ConvertTo-Json -Compress -Depth 10
     $result = $json | python $script:MemoryDriver
@@ -90,13 +138,28 @@ function Request-VaultSync {
                 background rebuild immediately. Otherwise the wiki refreshes on
                 the next Sync-Vault, Export-MemoryContext or Matrix-Load.
     #>
-    param([string]$Reason = "memory write")
-    if (-not (Test-Path $script:WikiSync)) { return }
+    param(
+        [string]$Reason = "memory write",
+        [switch]$NoBackground,
+        [switch]$Strict
+    )
+    if (-not (Test-Path $script:WikiSync)) {
+        if ($Strict) { throw "Wiki tooling not found at $script:WikiDir" }
+        return
+    }
     try {
-        & python $script:WikiSync --mark $Reason 2>&1 | Out-Null
-    } catch { return }
+        $out = & python $script:WikiSync --mark $Reason 2>&1
+        $code = $LASTEXITCODE
+        if ($code -ne 0) {
+            if ($Strict) { throw "Could not mark vault dirty: $($out -join "`n")" }
+            return
+        }
+    } catch {
+        if ($Strict) { throw }
+        return
+    }
 
-    if ($env:LTM_VAULT_AUTOSYNC -eq '1') {
+    if (-not $NoBackground -and $env:LTM_VAULT_AUTOSYNC -eq '1') {
         Start-Process -FilePath "python" -WindowStyle Hidden `
             -ArgumentList @($script:WikiSync, "--quiet") -ErrorAction SilentlyContinue | Out-Null
     }
@@ -143,11 +206,45 @@ function Sync-Vault {
     if ($Force)   { $argv += "--force" }
     if ($Quiet)   { $argv += "--quiet" }
     if ($NoIndex) { $argv += "--no-index" }
+    if (-not $Status) { $argv += "--json" }
 
     $out = & python @argv 2>&1
     $code = $LASTEXITCODE
-    if (-not $Quiet) { $out | ForEach-Object { Write-Host "📓 $_" } }
-    [pscustomobject]@{ ok = ($code -eq 0); exitCode = $code; output = ($out -join "`n") }
+    $lines = @($out | ForEach-Object { "$_" })
+    if ($Status) {
+        if (-not $Quiet) { $lines | ForEach-Object { Write-Host "📓 $_" } }
+        return [pscustomobject]@{
+            ok       = ($code -eq 0)
+            exitCode = $code
+            output   = ($lines -join "`n")
+            pages    = $null
+            index    = $null
+        }
+    }
+    $jsonLine = $lines | Where-Object { $_.TrimStart().StartsWith('{') } | Select-Object -Last 1
+    $details = $null
+    if ($jsonLine) {
+        try { $details = $jsonLine | ConvertFrom-Json -ErrorAction Stop } catch { $details = $null }
+    }
+    if (-not $Quiet) {
+        $lines | Where-Object { $_ -ne $jsonLine } | ForEach-Object { Write-Host "📓 $_" }
+    }
+    if ($null -eq $details) {
+        return [pscustomobject]@{
+            ok       = $false
+            exitCode = $code
+            output   = ($lines -join "`n")
+            pages    = $null
+            index    = $null
+        }
+    }
+    [pscustomobject]@{
+        ok       = [bool]$details.ok
+        exitCode = $code
+        output   = ($lines -join "`n")
+        pages    = $details.pages
+        index    = $details.index
+    }
 }
 
 function Add-Fact {
@@ -199,7 +296,8 @@ function Remember-This {
         [string]$FactType = "preference",
         [ValidateRange(1,5)][int]$Confidence = 5,
         [ValidateRange(1,5)][int]$Importance = 4,
-        [string]$Source = "Explicit user memory request"
+        [string]$Source = "Explicit user memory request",
+        [switch]$NoIndex
     )
 
     $fact = $null
@@ -215,16 +313,54 @@ function Remember-This {
         @{ op="export_context" }
     )
     $r = Invoke-Memory @{ op="batch"; ops=$ops }
+    Assert-MemoryResult -Value $r -Path "batch"
+    if (-not ($r.PSObject.Properties.Name -contains 'results') -or
+        $null -eq $r.results -or @($r.results).Count -ne 3) {
+        throw "memory batch returned an incomplete result set"
+    }
+    $topic = $r.results[0]
     $fact = $r.results[1]
     $ctx  = $r.results[2]
-    Request-VaultSync -Reason "Remember-This"
+    if (-not ($topic.PSObject.Properties.Name -contains 'topic_id')) {
+        throw "memory batch did not return a topic result"
+    }
+    if (-not ($fact.PSObject.Properties.Name -contains 'fact_id') -or
+        -not ($fact.PSObject.Properties.Name -contains 'inserted')) {
+        throw "memory batch did not return a fact result"
+    }
+    if (-not ($ctx.PSObject.Properties.Name -contains 'path') -or
+        [string]::IsNullOrWhiteSpace([string]$ctx.path)) {
+        throw "memory batch did not return a context result"
+    }
+
+    $null = Request-VaultSync -Reason "Remember-This" -NoBackground -Strict
+    $sync = Sync-Vault -Quiet -NoIndex:$NoIndex
+    if (-not $sync.ok -or $null -eq $sync.pages -or -not $sync.pages.current) {
+        $pageState = if ($sync.pages) { $sync.pages.state } else { "unknown" }
+        $indexState = if ($sync.index) { $sync.index.state } else { "unknown" }
+        $reason = if ($sync.index -and $sync.index.reason) {
+            $sync.index.reason
+        } elseif ($sync.output) {
+            $sync.output
+        } else {
+            "vault sync did not complete"
+        }
+        throw "memory was committed, but vault percolation failed " +
+              "(pages=$pageState, index=$indexState): $reason"
+    }
 
     [pscustomobject]@{
-        remembered   = $true
-        fact_id      = $fact.fact_id
-        inserted     = $fact.inserted
-        topic_slug   = $TopicSlug
-        context_path = $ctx.path
+        remembered       = $true
+        fact_id          = $fact.fact_id
+        inserted         = $fact.inserted
+        topic_slug       = $TopicSlug
+        context_path     = $ctx.path
+        page_state       = $sync.pages.state
+        lexical_current  = [bool]$sync.pages.current
+        index_state      = $sync.index.state
+        index_configured = $sync.index.configured
+        semantic_current = [bool]$sync.index.current
+        index_reason     = $sync.index.reason
     }
 }
 

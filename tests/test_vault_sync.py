@@ -20,6 +20,9 @@ for _sib in ("core", "hooks", "ops", "wiki"):
     if _p not in _sys.path:
         _sys.path.insert(0, _p)
 import os
+import importlib
+import json
+import gc
 import sqlite3
 import subprocess
 import sys
@@ -87,6 +90,35 @@ class TestSessionEndHook(unittest.TestCase):
             _fake_wiki(Path(d), 3)
             self.assertEqual(se.sync_obsidian_vault({"wiki_dir": d}),
                              {"returncode": 3})
+
+    def test_session_end_marker_uses_the_configured_vault(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            vault = root / "vault"
+            old = os.environ.get("LTM_WIKI_VAULT")
+            os.environ["LTM_WIKI_VAULT"] = str(vault)
+            try:
+                result = se.mark_obsidian_vault(
+                    {"wiki_dir": str(WIKI)}, "sessionEnd test write")
+            finally:
+                if old is None:
+                    os.environ.pop("LTM_WIKI_VAULT", None)
+                else:
+                    os.environ["LTM_WIKI_VAULT"] = old
+            self.assertEqual(result, {"returncode": 0})
+            marker = vault / ".wiki" / "dirty"
+            self.assertTrue(marker.is_file())
+            self.assertIn("sessionEnd test write", marker.read_text(encoding="utf-8"))
+
+    def test_change_detection_covers_direct_and_imported_writes(self):
+        self.assertTrue(se._memory_changed(
+            {"facts": 0, "entities": 0}, {"inserted": 0}))
+        self.assertTrue(se._memory_changed(
+            None, {"inserted": 1, "topics_created": 0, "superseded": 0}))
+        self.assertTrue(se._memory_changed(
+            None, {"inserted": 0, "topics_created": 0, "superseded": 1}))
+        self.assertFalse(se._memory_changed(
+            None, {"inserted": 0, "topics_created": 0, "superseded": 0}))
 
     def test_env_var_locates_the_wiki(self):
         with tempfile.TemporaryDirectory() as d:
@@ -172,6 +204,36 @@ class TestSyncDriver(unittest.TestCase):
         self.assertTrue((self.state / "dirty").is_file(),
                         "a skipped sync must leave the marker for the next run")
 
+    def test_marker_claim_failure_does_not_leak_sync_lock(self):
+        sys.path.insert(0, str(WIKI))
+        import sync as sync_module
+
+        db = Path(self.env["LTM_MEMORY_DB"])
+        db.parent.mkdir(parents=True, exist_ok=True)
+        sqlite3.connect(db).close()
+        self.state.mkdir(parents=True, exist_ok=True)
+        (self.state / "dirty").write_text("retry-me\n", encoding="utf-8")
+
+        original_paths = sync_module.config.paths
+        original_replace = sync_module.os.replace
+        sync_module.config.paths = lambda: {
+            "mode": "memory-only",
+            "vault": self.vault,
+            "vault_vectors": Path(self.env["COPILOT_HOME"]) / "vectors.db",
+            "memory_db": db,
+        }
+        sync_module.os.replace = lambda *_: (_ for _ in ()).throw(
+            PermissionError("simulated marker lock"))
+        try:
+            with self.assertRaises(PermissionError):
+                sync_module.cmd_sync(
+                    full=False, force=False, quiet=True, no_index=True)
+        finally:
+            sync_module.config.paths = original_paths
+            sync_module.os.replace = original_replace
+
+        self.assertFalse((self.state / "sync.lock").exists())
+        self.assertTrue((self.state / "dirty").is_file())
 
 @unittest.skipUnless((WIKI / "vaultlib.py").is_file(), "wiki layer not present")
 class TestIncrementalScoping(unittest.TestCase):
@@ -347,6 +409,32 @@ class TestVectorIndexDispatch(unittest.TestCase):
         self.sync._run_vector_index_subprocess = fake
         return calls
 
+    def test_claimed_marker_does_not_consume_a_concurrent_write(self):
+        state = Path(self._tmp.name) / "state"
+        state.mkdir()
+        dirty = state / "dirty"
+        processing = state / "dirty.processing"
+        dirty.write_text("before-build\n", encoding="utf-8")
+
+        self.sync._claim_dirty_marker(dirty, processing)
+        dirty.write_text("during-build\n", encoding="utf-8")
+        processing.unlink()
+
+        self.assertEqual(dirty.read_text(encoding="utf-8"), "during-build\n")
+
+    def test_failed_sync_restores_the_claimed_marker(self):
+        state = Path(self._tmp.name) / "state"
+        state.mkdir()
+        dirty = state / "dirty"
+        processing = state / "dirty.processing"
+        dirty.write_text("retry-me\n", encoding="utf-8")
+
+        self.sync._claim_dirty_marker(dirty, processing)
+        self.sync._restore_processing_marker(processing, dirty)
+
+        self.assertIn("retry-me", dirty.read_text(encoding="utf-8"))
+        self.assertFalse(processing.exists())
+
     def test_explicit_opt_out_never_touches_vault_vectors(self):
         # If this reaches vault_vectors at all the test fails loudly, rather
         # than just asserting zero subprocess calls -- an opt-out must be
@@ -354,30 +442,41 @@ class TestVectorIndexDispatch(unittest.TestCase):
         self.vv.available = lambda: (_ for _ in ()).throw(
             AssertionError("opt-out must short-circuit before availability check"))
         calls = self._stub_subprocess()
-        self.sync._sync_vector_index(self.vault, self.db, quiet=True, no_index=True)
+        result = self.sync._sync_vector_index(
+            self.vault, self.db, quiet=True, no_index=True)
         self.assertEqual(calls, [])
+        self.assertEqual(result["state"], "disabled")
+        self.assertFalse(result["current"])
 
     def test_env_var_opt_out_is_honoured(self):
         os.environ["LTM_VAULT_AUTOINDEX"] = "0"
         self.vv.available = lambda: (_ for _ in ()).throw(
             AssertionError("env-var opt-out must short-circuit too"))
         calls = self._stub_subprocess()
-        self.sync._sync_vector_index(self.vault, self.db, quiet=True, no_index=False)
+        result = self.sync._sync_vector_index(
+            self.vault, self.db, quiet=True, no_index=False)
         self.assertEqual(calls, [])
+        self.assertEqual(result["state"], "disabled")
 
     def test_unavailable_embeddings_skip_without_spawning(self):
         self.vv.available = lambda: False
         calls = self._stub_subprocess()
-        self.sync._sync_vector_index(self.vault, self.db, quiet=True, no_index=False)
+        result = self.sync._sync_vector_index(
+            self.vault, self.db, quiet=True, no_index=False)
         self.assertEqual(calls, [])
+        self.assertEqual(result["state"], "unavailable")
+        self.assertFalse(result["current"])
 
     def test_never_passes_limit_pages(self):
         self.vv.available = lambda: True
         calls = self._stub_subprocess(
             stdout="embedded 1, reused 0, deleted 0 across 1 pages")
-        self.sync._sync_vector_index(self.vault, self.db, quiet=True, no_index=False)
+        result = self.sync._sync_vector_index(
+            self.vault, self.db, quiet=True, no_index=False)
         self.assertEqual(len(calls), 1)
         self.assertNotIn("--limit-pages", calls[0])
+        self.assertEqual(result["state"], "indexed")
+        self.assertTrue(result["current"])
 
     def test_fresh_sidecar_defaults_to_contextual(self):
         # No existing chunks to match -- this is the one case allowed to
@@ -385,8 +484,10 @@ class TestVectorIndexDispatch(unittest.TestCase):
         self.vv.available = lambda: True
         calls = self._stub_subprocess(
             stdout="embedded 0, reused 0, deleted 0 across 0 pages")
-        self.sync._sync_vector_index(self.vault, self.db, quiet=True, no_index=False)
+        result = self.sync._sync_vector_index(
+            self.vault, self.db, quiet=True, no_index=False)
         self.assertIn("--contextual", calls[0])
+        self.assertEqual(result["state"], "indexed")
 
     def test_ambiguous_mode_skips_without_spawning(self):
         # A sidecar that already disagrees with itself must not be written to
@@ -399,8 +500,11 @@ class TestVectorIndexDispatch(unittest.TestCase):
         con.commit()
         con.close()
         calls = self._stub_subprocess()
-        self.sync._sync_vector_index(self.vault, self.db, quiet=True, no_index=False)
+        result = self.sync._sync_vector_index(
+            self.vault, self.db, quiet=True, no_index=False)
         self.assertEqual(calls, [])
+        self.assertEqual(result["state"], "failed")
+        self.assertFalse(result["current"])
 
 
 @unittest.skipUnless((WIKI / "vault_vectors.py").is_file(), "wiki layer not present")
@@ -479,6 +583,324 @@ class TestVectorIndexCliWiring(unittest.TestCase):
         r = self.run_sync("--quiet")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "")
+
+
+class TestRememberPercolationCore(unittest.TestCase):
+    """Cross-platform proof from memory commit through Vault MCP retrieval."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.home = root / "home"
+        self.vault = root / "vault"
+        self.memory_db = self.home / "memory.db"
+        self.context = self.home / "memory-context.md"
+        self.vectors = self.home / "vault-vectors.db"
+        self.home.mkdir(parents=True)
+        con = sqlite3.connect(self.memory_db)
+        con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
+        con.commit()
+        con.close()
+        self.novel = "percolation-nebula-741"
+        self._env_keys = (
+            "COPILOT_HOME", "LTM_WIKI_VAULT", "LTM_MEMORY_DB",
+            "LTM_SESSION_DB", "LTM_WIKI_WORKSPACE", "LTM_VAULT_VECTORS",
+            "LTM_EMBED_ENDPOINT", "LTM_EMBED_DIMENSIONS",
+        )
+        self._saved_env = {key: os.environ.get(key) for key in self._env_keys}
+        os.environ.update({
+            "COPILOT_HOME": str(self.home),
+            "LTM_WIKI_VAULT": str(self.vault),
+            "LTM_MEMORY_DB": str(self.memory_db),
+            "LTM_SESSION_DB": str(self.home / "session.db"),
+            "LTM_WIKI_WORKSPACE": "",
+            "LTM_VAULT_VECTORS": str(self.vectors),
+            "LTM_EMBED_ENDPOINT": "https://example.invalid",
+            "LTM_EMBED_DIMENSIONS": "4",
+        })
+
+        import config
+        import memory_driver
+        import sync
+        import vault_embed
+        import vault_mcp
+        import vault_vectors
+
+        self.config = importlib.reload(config)
+        self.embed = importlib.reload(vault_embed)
+        self.vv = importlib.reload(vault_vectors)
+        self.sync = importlib.reload(sync)
+        self.mcp = importlib.reload(vault_mcp)
+        self.md = memory_driver
+        if self.vv._sqlite_vec() is None:
+            self.skipTest("sqlite-vec is required for the configured-vector contract")
+
+        self._saved_embed = self.vv.vault_embed.embed
+        self._saved_embed_one = self.vv.vault_embed.embed_one
+        self._saved_dimensions = self.vv.vault_embed.dimensions
+        self._saved_runner = self.sync._run_vector_index_subprocess
+
+        def fake_vectors(texts):
+            return [
+                [1.0, 0.0, 0.0, 0.0]
+                if self.novel in text.casefold()
+                else [0.0, 1.0, 0.0, 0.0]
+                for text in texts
+            ]
+
+        self.vv.vault_embed.embed = fake_vectors
+        self.vv.vault_embed.embed_one = lambda text: fake_vectors([text])[0]
+        self.vv.vault_embed.dimensions = lambda: 4
+
+        def run_index(argv, timeout):
+            stats = self.vv.index(
+                vault=self.vault,
+                db=self.vectors,
+                verbose=False,
+                contextual="--contextual" in argv,
+            )
+            stdout = (
+                f"embedded {stats['embedded']}, reused {stats['reused']}, "
+                f"deleted {stats['deleted']} across {stats['pages']} pages"
+            )
+            stderr = "" if stats["ok"] else "embedding failed at batch"
+            return subprocess.CompletedProcess(
+                argv, 0 if stats["ok"] else 1, stdout, stderr)
+
+        self.sync._run_vector_index_subprocess = run_index
+
+    def tearDown(self):
+        if hasattr(self, "vv"):
+            self.vv.vault_embed.embed = self._saved_embed
+            self.vv.vault_embed.embed_one = self._saved_embed_one
+            self.vv.vault_embed.dimensions = self._saved_dimensions
+            self.sync._run_vector_index_subprocess = self._saved_runner
+        for key, value in self._saved_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+        gc.collect()
+        self._tmp.cleanup()
+
+    def test_fact_reaches_fts_note_sidecar_and_vault_mcp(self):
+        result = self.md.batch({
+            "db_path": str(self.memory_db),
+            "context_path": str(self.context),
+            "ops": [
+                {"op": "add_topic", "slug": "percolation-test",
+                 "title": "Percolation Test", "category": "research"},
+                {"op": "add_fact",
+                 "content": f"The novel retrieval token is {self.novel}.",
+                 "topic_slug": "percolation-test", "fact_type": "finding",
+                 "confidence": 5, "importance": 5, "source": "unit test"},
+                {"op": "export_context"},
+            ],
+        })
+        fact = result["results"][1]
+        self.assertTrue(fact["inserted"])
+        hits = self.md.search_memory({
+            "db_path": str(self.memory_db), "query": self.novel})
+        self.assertTrue(any(self.novel in row["content"] for row in hits))
+
+        self.assertEqual(self.sync.cmd_mark("Remember-This"), 0)
+        synced = self.sync.cmd_sync(
+            full=False, force=False, quiet=True, no_index=False)
+        self.assertTrue(synced["ok"], synced)
+        self.assertEqual(synced["pages"]["state"], "rebuilt")
+        self.assertEqual(synced["index"]["state"], "indexed")
+        self.assertTrue(synced["index"]["current"])
+
+        generated = [
+            page for page in self.vault.rglob("*.md")
+            if self.novel in page.read_text(encoding="utf-8")
+        ]
+        self.assertTrue(generated, "incremental build omitted the novel fact")
+
+        con = self.vv._connect(self.vectors)
+        try:
+            row = con.execute(
+                """SELECT c.path, c.preview
+                   FROM chunks c JOIN vec_chunks v ON v.rowid = c.rowid
+                   WHERE c.preview LIKE ? LIMIT 1""",
+                (f"%{self.novel}%",),
+            ).fetchone()
+        finally:
+            con.close()
+        self.assertIsNotNone(row, "sidecar has no vector for the novel fact")
+
+        rendered = self.mcp.t_search({
+            "query": self.novel, "limit": 5, "mode": "vector"})
+        self.assertIn(Path(row["path"]).stem, rendered)
+
+    def test_configured_index_failure_is_not_success_and_keeps_dirty(self):
+        self.md.add_topic({
+            "db_path": str(self.memory_db), "slug": "failed-index",
+            "title": "Failed Index", "category": "research"})
+        self.md.add_fact({
+            "db_path": str(self.memory_db),
+            "content": "A page rebuild that cannot finish vector indexing.",
+            "topic_slug": "failed-index", "importance": 5})
+        self.assertEqual(self.sync.cmd_mark("Remember-This"), 0)
+        self.sync._run_vector_index_subprocess = lambda argv, timeout: (
+            subprocess.CompletedProcess(
+                argv, 1, "", "embedding failed at batch 0"))
+
+        synced = self.sync.cmd_sync(
+            full=False, force=False, quiet=True, no_index=False)
+
+        self.assertFalse(synced["ok"])
+        self.assertTrue(synced["pages"]["current"])
+        self.assertEqual(synced["index"]["state"], "failed")
+        self.assertFalse(synced["index"]["current"])
+        self.assertTrue((self.vault / ".wiki" / "dirty").is_file())
+
+
+@unittest.skipUnless(os.name == "nt", "PowerShell wrapper contract is Windows-specific")
+class TestRememberThisPowerShell(unittest.TestCase):
+    """Smoke the public wrapper without touching the live memory or vault."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        root = Path(self._tmp.name)
+        self.home = root / "home"
+        self.vault = root / "vault"
+        self.home.mkdir(parents=True)
+        self.memory_db = self.home / "memory.db"
+        con = sqlite3.connect(self.memory_db)
+        con.executescript(SCHEMA_SQL.read_text(encoding="utf-8"))
+        con.commit()
+        con.close()
+        self.env = dict(os.environ)
+        self.env.pop("LTM_EMBED_ENDPOINT", None)
+        self.env.update({
+            "COPILOT_HOME": str(self.home),
+            "LTM_WIKI_DIR": str(WIKI),
+            "LTM_WIKI_VAULT": str(self.vault),
+            "LTM_MEMORY_DB": str(self.memory_db),
+            "LTM_SESSION_DB": str(self.home / "session.db"),
+            "LTM_WIKI_WORKSPACE": "",
+            "LTM_VAULT_VECTORS": str(self.home / "vault-vectors.db"),
+            "LTM_VAULT_AUTOSYNC": "0",
+            "PYTHONIOENCODING": "utf-8",
+        })
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def run_ps(self, body):
+        try:
+            return subprocess.run(
+                ["pwsh", "-NoLogo", "-NoProfile", "-Command", body],
+                cwd=str(REPO), env=self.env, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=60)
+        except subprocess.TimeoutExpired as exc:
+            out = (exc.stdout or b"")
+            err = (exc.stderr or b"")
+            if isinstance(out, bytes):
+                out = out.decode("utf-8", "replace")
+            if isinstance(err, bytes):
+                err = err.decode("utf-8", "replace")
+            raise AssertionError(
+                f"PowerShell timed out.\nstdout:\n{out}\nstderr:\n{err}") from exc
+
+    @staticmethod
+    def json_result(proc):
+        for line in reversed(proc.stdout.splitlines()):
+            if line.lstrip().startswith("{"):
+                return json.loads(line)
+        raise AssertionError(f"no JSON result in stdout:\n{proc.stdout}\n{proc.stderr}")
+
+    def test_nested_batch_failure_cannot_report_remembered(self):
+        script = f"""
+. '{REPO / "memory.ps1"}'
+function Invoke-Memory {{
+  [pscustomobject]@{{ results = @(
+    [pscustomobject]@{{ topic_id = 1 }},
+    [pscustomobject]@{{ error = 'inner failure'; type = 'InjectedError' }},
+    [pscustomobject]@{{ path = 'unused' }}
+  ) }}
+}}
+try {{
+  $null = Remember-This -Content 'must not succeed'
+  Write-Output '{{"unexpected":true}}'
+  exit 2
+}} catch {{
+  [pscustomobject]@{{ caught = $true; message = $_.Exception.Message }} |
+    ConvertTo-Json -Compress
+}}
+"""
+        proc = self.run_ps(script)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        result = self.json_result(proc)
+        self.assertTrue(result["caught"])
+        self.assertIn("inner failure", result["message"])
+        self.assertNotIn("remembered", result)
+
+    def test_page_rebuild_failure_is_thrown(self):
+        script = f"""
+. '{REPO / "memory.ps1"}'
+function Invoke-Memory {{
+  [pscustomobject]@{{ results = @(
+    [pscustomobject]@{{ topic_id = 1 }},
+    [pscustomobject]@{{ fact_id = 2; inserted = $true }},
+    [pscustomobject]@{{ path = 'context.md' }}
+  ) }}
+}}
+function Request-VaultSync {{ }}
+function Sync-Vault {{
+  [pscustomobject]@{{
+    ok = $false
+    output = 'page build failed'
+    pages = [pscustomobject]@{{ state = 'failed'; current = $false }}
+    index = [pscustomobject]@{{ state = 'not-run'; current = $false }}
+  }}
+}}
+try {{
+  $null = Remember-This -Content 'must surface page failure'
+  Write-Output '{{"unexpected":true}}'
+  exit 2
+}} catch {{
+  [pscustomobject]@{{ caught = $true; message = $_.Exception.Message }} |
+    ConvertTo-Json -Compress
+}}
+"""
+        proc = self.run_ps(script)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        result = self.json_result(proc)
+        self.assertTrue(result["caught"])
+        self.assertIn("page build failed", result["message"])
+
+    def test_explicit_no_index_reports_lexical_only_current(self):
+        script = f"""
+. '{REPO / "memory.ps1"}'
+Remember-This -Content 'PowerShell opt out novel fact' `
+  -TopicSlug 'powershell-opt-out' -FactType finding -NoIndex |
+  ConvertTo-Json -Depth 8 -Compress
+"""
+        proc = self.run_ps(script)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        result = self.json_result(proc)
+        self.assertTrue(result["remembered"])
+        self.assertTrue(result["lexical_current"])
+        self.assertFalse(result["semantic_current"])
+        self.assertEqual(result["index_state"], "disabled")
+
+    def test_unconfigured_vectors_are_reported_not_implied_current(self):
+        script = f"""
+. '{REPO / "memory.ps1"}'
+Remember-This -Content 'PowerShell unavailable vector novel fact' `
+  -TopicSlug 'powershell-unavailable' -FactType finding |
+  ConvertTo-Json -Depth 8 -Compress
+"""
+        proc = self.run_ps(script)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        result = self.json_result(proc)
+        self.assertTrue(result["remembered"])
+        self.assertTrue(result["lexical_current"])
+        self.assertFalse(result["semantic_current"])
+        self.assertEqual(result["index_state"], "unavailable")
+        self.assertIn("embed_endpoint", result["index_reason"])
 
 
 if __name__ == "__main__":
