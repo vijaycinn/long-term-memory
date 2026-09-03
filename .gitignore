@@ -4,7 +4,6 @@ __pycache__/
 *.db
 memory-context.md
 memory-backup-*.json
-seed_memory.py
 memory-backups/
 
 # Wiki build state belongs with the vault it describes, never in the repo.

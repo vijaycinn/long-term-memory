@@ -22,7 +22,7 @@ Status vocabulary in this table is deliberate:
 | **Phase 1** (T1.1–T1.5) | **Yes.** Graph expansion, ranking, entity backfill, and session-end edge capture exist. | **Yes.** Unit coverage passes; `hops=1` is an exploration aid and did not improve benchmark recall. | **Pushed.** Base commits and the integrated `e89946f` versions are on `origin/main`. | Live hook activation was **not reverified** in this audit. |
 | **Phase 2** (T2.1–T2.9, including T2.3) | **Yes.** Vector sidecar, hybrid RRF, relaxed BM25, page reranker, contextual chunking, and auto-index exist. | **Mostly.** All targeted tests pass. Reranker helpers and sync dispatch are covered; direct hybrid-reranker invocation and the claimed live `Remember-This` end-to-end path are not repository regression tests. | **Pushed** in `e89946f`. | Reconcile the 57-query oracle artifact and avoid claiming the live sidecar's contextual mode unless recorded or reverified. |
 | **Phase 3** (T3.1) | **Yes.** Prompt-aware `initialPrompt` fact injection exists. | **Yes.** Empty, short, long, and punctuation-heavy prompts are covered. | **Pushed** in `ced1dd7`. | **Activation unverified.** The checked-in config template keeps `sessionStart` empty; the installer registers the hook. User-level settings were not authorized for inspection. |
-| **Phase 4** (P4.0–P4.3) | **Partial.** B2/B4 and the guide exist; the local neutral seed exists. | **Partial.** Bootstrap proves generated-path portability, but no clean-machine installer test exists. | **Mixed.** Current guide and portability fixes are pushed; neutral `setup/seed_memory.py` remains ignored and untracked. | B1 access policy, B3 seed distribution, clean-machine verification, two path defects, and stale docs remain. |
+| **Phase 4** (P4.0–P4.3) | **Partial.** B2/B3/B4 and the guide exist. | **Partial.** Bootstrap proves generated-path portability and the neutral seed passes an idempotency smoke test, but no clean-machine installer test exists. | **Pushed.** Current guide, portability fixes, and neutral seed are tracked on `origin/main`. | B1 access policy, clean-machine verification, two path defects, and stale docs remain. |
 
 ### 0.0.1 Git and release snapshot
 
@@ -34,8 +34,8 @@ Status vocabulary in this table is deliberate:
 
 **Answer to "did Copilot finish it?":** it finished the core code and repository
 test work, but it did **not** finish release closeout. The inconsistent benchmark
-artifacts, untracked neutral seed, unverified live activation, and unverified
-peer install prevent a "fully finished" status.
+artifacts, unverified live activation, and unverified peer install prevent a
+"fully finished" status.
 
 **The core diagnostic insight:** Dense embeddings + RRF hybrid fusion cured the structurally-zero vocabulary failure, but raw BM25 still had a long-query recall bug until T2.9. The selected relaxed-OR displacement repair improves candidate-pool coverage without improving Recall@5: at K=120, MRR is **0.472** versus **0.488** at K=60, while g04 returns at pool rank 18 and g26 reaches rank 10. This is a qualified structural repair, not a net metric win.
 
@@ -321,7 +321,7 @@ is a genuine greenfield proof that runs entirely in a temp directory.
 |---|---|---|
 | **B1** | **Open:** repo is private under the personal `vijaycinn` account. A peer on a `_microsoft` EMU account gets a misleading `Repository not found`, and an EMU user cannot fork outside the enterprise. No script fixes this. | Move to an org repo, or add the peer as a collaborator. Policy decision, not code. |
 | **B2** | **Resolved:** `copilot-config/hooks/hook-guard.json` had absolute paths and referenced a missing script, so a peer could register dead hooks. | Generate it from `$RepoRoot` in `install-memory.ps1`; remove the missing reference. |
-| **B3** | **Partially resolved:** the host has a neutral synthetic `setup/seed_memory.py`, but `.gitignore` ignores `seed_memory.py` and `git ls-files` confirms the file is absent from `HEAD`. A peer clone therefore receives no seed file and the installer warns and skips it. | Track the neutral seed and narrow/remove the ignore rule, or remove the seed option and its documentation. |
+| **B3** | **Resolved:** `setup/seed_memory.py` contains only neutral synthetic data and is tracked in Git. Running it twice against a fresh temporary database inserts five facts and one snapshot on the first run and zero duplicates on the second. | Complete. |
 | **B4** | **Resolved:** `wiki/build.py` wrote machine-specific instructions into the peer's generated index page. | Interpolate from `config.paths()` / `Path(__file__)`. |
 
 ### P4.1 — Peer install guide
@@ -414,7 +414,6 @@ guard has three scripts while the template has four.
 | Priority | Work | Current Evidence | Completion Proof |
 |---|---|---|---|
 | **P0** | Reconcile benchmark artifacts. Generate a 57-query `--oracle` artifact with revision, diff, pages, chunks, dimensions, and model provenance. | `oracle-ceiling-2026-09-02.json` is 27 queries at 21/27 Recall@20. The 51/57 result lives in normal retrieval output, not an oracle artifact. | Checked-in 57-query oracle whose metrics match the plan and whose run used a stable full index. |
-| **P1** | Make the neutral seed portable. | `setup/seed_memory.py` is neutral locally but ignored and absent from Git. | Peer clone contains the neutral seed, or the installer/docs no longer offer seeding. |
 | **P1** | Verify peer installation on a clean Windows profile or machine. | Temp-directory bootstrap, 281 unittests, and MCP 9/9 pass; neither PowerShell installer has a clean-machine integration run. | Both installers create correct DB, hooks, MCP JSON, identity, restart behavior, and optional seed behavior from a fresh clone. |
 | **P1** | Fix remaining path portability defects. | `install-wiki.ps1` checks only `$COPILOT_HOME\memory.db` instead of `LTM_MEMORY_DB`; `install-memory.ps1` scans default `%USERPROFILE%\.copilot` agent paths instead of custom `COPILOT_HOME`. | Targeted tests or isolated install prove both custom paths work. |
 | **P1** | Verify live hook activation without assuming access to user settings. | Code and installer exist; checked-in template has empty `sessionStart`; user-level settings inspection was not authorized. | User-authorized config inspection or observed behavior in a fresh CLI session. |
@@ -444,7 +443,7 @@ guard has three scripts while the template has four.
 - [x] **Sync-Vault auto-index** closes the stage-3 gap in code: sync dispatches indexing by default and `-NoIndex` opts out. Unit tests verify command construction and safe limited-index behavior. The reported live `Remember-This` → `Sync-Vault` → rank-1 run remains operational evidence, not a repository regression test.
 - [x] **P4.0-B2/B4:** Portability defects fixed without machine-specific paths in generated instructions
 - [x] **P4.2:** Stale test command corrected
-- [ ] **P4.0-B3:** neutral seed tracked in Git or seed option removed
+- [x] **P4.0-B3:** neutral seed tracked in Git and verified idempotent against a fresh temporary database
 - [ ] `docs/INSTALL-PEER.md` checklist verified **on a clean machine** — guide written; clean-machine verification still outstanding and cannot be done from this host
 - [ ] `README.md`, `CAPABILITIES.md`, and `copilot-config/README.md` reconciled with current test count, auto-index behavior, safe limited indexing, and four-script hook guard
 - [x] Retrieval v4 completion and the 2026-09-03 audit update pushed to `origin/main`
