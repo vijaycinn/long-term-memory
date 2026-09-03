@@ -10,7 +10,7 @@ design together, and how to extend it safely.
 | **Schema version** | **3** |
 | Driver ops | 15 |
 | PowerShell cmdlets | 26 |
-| Tests | **258** unittest across 13 files, plus 2 standalone harnesses |
+| Tests | **293** unittest across 13 files, plus 2 standalone harnesses |
 | Session start @ 100k facts | **161 ms** |
 | Continuity | RPO ≤ 12 h unattended, RTO seconds |
 
@@ -109,11 +109,20 @@ Memory answers one fact at a time; the wiki compiles memory + the session store
 Karpathy's LLM-wiki pattern. See the README section *The knowledge wiki* and
 `wiki/templates/AGENTS.md` (the operating contract seeded into every vault).
 
-Memory writes call `Request-VaultSync`, which **only drops a marker** — the
-rebuild runs on `Export-MemoryContext`, `Matrix-Load`, or the sessionEnd hook
-(`sync_obsidian_vault`). The split matters: an incremental rebuild costs seconds
-and a full one much longer, so syncing inline on every `Add-Fact` would make a
-loop of writes unusable.
+Most memory writes call `Request-VaultSync`, which drops a marker; the rebuild
+runs on `Export-MemoryContext`, `Matrix-Load`, `Sync-Vault`, or the sessionEnd
+hook. `Remember-This` is the deliberate synchronous exception: it batches and
+validates the memory results, marks the vault dirty, runs an incremental
+`Sync-Vault`, and waits for the configured vector step before returning.
+
+The percolation order is: new fact in `memory.db` FTS5 immediately, generated
+Obsidian pages next, then sidecar BM25 and sqlite-vec when the semantic layer is
+configured. Its result exposes `page_state`, `lexical_current`, `index_state`,
+`index_configured`, `semantic_current`, and `index_reason`. `-NoIndex` (or
+`LTM_VAULT_AUTOINDEX=0`) returns a current lexical page with
+`index_state = disabled`; unavailable vectors return `index_state = unavailable`
+and the write still succeeds. A configured failure or partial index returns `failed`/`partial`; the fact stays
+committed, but `Remember-This` throws and retains the dirty marker for retry.
 
 **Query surface.** `wiki/vault_mcp.py` is an MCP server exposing `memory_search`
 (FTS5 straight against `memory.db` — works with no vault and no Obsidian) plus
@@ -168,12 +177,11 @@ python wiki\vault_vectors.py status
 python wiki\vault_vectors.py search "content understanding cost" --limit 5
 ```
 
-`index` (`python wiki\vault_vectors.py index`) rebuilds the shared live
-sidecar and embeds new or changed chunks; do not run it casually. `--quiet`
-suppresses progress. The CLI also exposes `--limit-pages N` on `index`; the
-current implementation deletes chunks outside a limited page set,
-so do not use `--limit-pages` against an existing sidecar; treat it as unsafe
-until the source issue is fixed.
+`Sync-Vault` runs `index` automatically after a successful page rebuild.
+`python wiki\vault_vectors.py index` remains available for maintenance or
+recovery; `--quiet` suppresses progress. `--limit-pages N` is a scoped update
+for smoke testing: it preserves chunks and BM25 rows outside the selected page
+set, guarded by `test_limited_index_preserves_out_of_scope_chunks`.
 
 `wiki/vault_rerank.py` is stdlib-only and operates at page level over the
 fused candidate pool. It uses normalised RRF **0.60**, title coverage **0.20**,
@@ -406,17 +414,17 @@ python wiki\test_vault_mcp.py
 | `test_memory_driver.py` | 71 | FTS sanitizing, recency, export fairness, identity, migration, batch, markdown safety |
 | `test_ltm_ops.py` | 35 | Retention, compaction, backup, **destroy-and-restore drill**, auto-backup |
 | `test_wiki_export.py` | 20 | Wiki export |
-| `test_vault_vectors.py` | 36 | Boilerplate stripping, chunking, content hashing, FTS sanitising, RRF fusion and degradation |
+| `test_vault_vectors.py` | 42 | Boilerplate stripping, chunking, content hashing, FTS sanitising, RRF fusion, degradation and safe limited indexing |
 | `test_vault_embed.py` | 15 | Token expiry states, the `az login` nudge, every embed fallback path |
 | `test_vault_mcp_rank.py` | 17 | **bm25 sign trap** (mutation-tested), rare-term ranking, candidate-pool direction, entity co-mention caps, `hops=0` byte-identity |
 | `test_vault_rerank.py` | 4 | Page-level reranking signals, title guard, stable ordering and failure fallback |
 | `test_backfill_entity_mentions.py` | 1 | Fact-level entity-edge backfill |
 | `test_lint.py` | 14 | Health checks |
-| `test_vault_sync.py` | 14 | Wiki bridge — sessionEnd hook, sync marker/lock/retry, incremental scoping |
+| `test_vault_sync.py` | 41 | Wiki bridge — sessionEnd hook, sync marker/lock/retry, concurrent-write preservation, lock cleanup, incremental scoping, auto-index and Remember-This percolation |
 | `test_session_start.py` | 13 | sessionStart hook, incl. prompt-aware retrieval (empty/short/long/punctuation) |
 | `test_session_end.py` | 10 | sessionEnd hook, incl. fact-level entity edges |
-| `test_retrieval_bench.py` | 8 | Golden-set schema, recall/MRR arithmetic, compare deltas and oracle metrics |
-| **Total** | **258** | |
+| `test_retrieval_bench.py` | 10 | Golden-set schema, recall/MRR arithmetic, compare deltas and oracle metrics |
+| **Total** | **293** | |
 
 Two standalone harnesses run outside `unittest`:
 

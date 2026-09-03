@@ -10,31 +10,32 @@ the hooks fill it or you restore a backup.
 
 ---
 
-## How it works — three stages, not one
+## How it works — commit first, then percolate
 
-Everything downstream depends on which of three independent stages has run.
-Confusing them is the most common cause of *"why can't it find the fact I just
-saved"* — because the honest answer is often **it can, by keyword, but not yet
-by meaning.**
+`Remember-This` is the end-to-end write path. It commits the fact, rebuilds the
+generated Obsidian pages, and waits for the configured semantic index before it
+returns. The individual lower-level write commands remain cheap marker-only
+operations.
 
-| Stage | Command | Writes | Embeds? |
-|---|---|---|---|
-| 1. Capture a fact | `Remember-This` / `Add-Fact` | `memory.db` (SQLite + FTS5) | No |
-| 2. Rebuild the wiki | `Sync-Vault` (→ `wiki/sync.py`) | Obsidian vault markdown | No |
-| 3. Build the vector index | `python wiki\vault_vectors.py index` | `vault-vectors.db` sidecar | **Yes — the only embedding step in this repo** |
+| Stage | What runs | Result |
+|---|---|---|
+| 1. Commit memory | `Remember-This` / `Add-Fact` | `memory.db` SQLite + FTS5 is current immediately |
+| 2. Rebuild pages | `Sync-Vault` → `wiki\sync.py` → `build.py` | Generated Obsidian pages and lexical vault content are current |
+| 3. Update retrieval | `Sync-Vault` auto-index (unless opted out) | Sidecar BM25 and, when configured, sqlite-vec are current |
 
 ```mermaid
 flowchart TD
-    RT["Remember-This / Add-Fact"] --> DB[("memory.db<br>SQLite + FTS5")]
+    RT["Remember-This"] --> DB[("memory.db<br>SQLite + FTS5")]
     DB --> BR["Export-MemoryContext / Matrix-Load"]
     BR --> CTX["memory-context.md /<br>copilot-instructions.md"]
 
-    DB -->|"Request-VaultSync marker<br>(instant, no rebuild)"| SV["Sync-Vault<br>sessionEnd hook — automatic"]
+    RT -->|"validate + dirty marker"| SV["Sync-Vault<br>synchronous incremental run"]
     SV --> WK["wiki/sync.py → build.py"]
     WK --> VLT["Obsidian vault markdown"]
 
-    VLT -.->|"NO HOOK CALLS THIS —<br>run by hand"| IDX["python wiki/vault_vectors.py index"]
-    IDX --> EMB{{"Azure OpenAI embed()<br>text-embedding-3-small, 512-dim<br>THE ONLY embedding call in this repo"}}
+    VLT -->|"default after page rebuild"| IDX["vault_vectors.py index"]
+    IDX --> BM25[("sidecar BM25")]
+    IDX --> EMB{{"Azure OpenAI embed()<br>text-embedding-3-small, 512-dim"}}
     EMB --> SC[("vault-vectors.db<br>sqlite-vec sidecar")]
 
     DB --> MS["memory_search (MCP)<br>FTS5 over memory.db — always current"]
@@ -43,35 +44,41 @@ flowchart TD
 
     classDef safe fill:#d9f2d9,stroke:#2e7d32,color:#0a3d0a;
     classDef embed fill:#ffd699,stroke:#b34700,color:#3d1f00,stroke-width:2px;
-    class DB,BR,CTX,SV,WK,VLT,MS,VSRCH safe;
+    class DB,BR,CTX,SV,WK,VLT,BM25,MS,VSRCH safe;
     class IDX,EMB,SC embed;
 ```
 
-Green = no embedding call anywhere on that path. Orange = the one place this
-repo talks to Azure OpenAI.
+Green = no embedding call on that path. Orange = the optional semantic-index
+step that talks to Azure OpenAI.
 
 **Evidence** (verified against the code, not the old docs, which did not make
 this clear):
 
 - `core/memory_driver.py` — the stage-1 backend — imports only
   `json, sys, sqlite3, os, io, re, datetime`. It cannot embed anything.
-- `Add-Fact` / `Remember-This` call `Request-VaultSync`, whose own docstring
-  says *"Cheap — writes a marker only."* The actual wiki rebuild runs later, at
-  `Sync-Vault`, `Export-MemoryContext`, `Matrix-Load`, or the `sessionEnd` hook.
-- `wiki/sync.py` — what stage 2 calls — has **zero** references to
-  `vault_vectors`, `vault_embed`, or `embed` anywhere in the file.
-- **No hook runs stage 3.** `hooks/ltm_session_end.py` calls
-  `sync_obsidian_vault()`, which only ever invokes `wiki/sync.py` — never
-  `vault_vectors.py`. `hooks/ltm_session_start.py` imports `vault_embed` for
-  exactly one reason: to read `token_status()`, a cached-file check that warns
-  you when `az login` has lapsed. It never calls `embed()`.
+- `Remember-This` batches topic/fact/context writes, validates all nested
+  results, marks the vault dirty, and calls `Sync-Vault` before returning.
+- `wiki\sync.py` rebuilds pages first, then dispatches `vault_vectors.py index`
+  by default. The same step refreshes the sidecar BM25 data and sqlite-vec
+  vectors when the semantic layer is configured.
+- `hooks\ltm_session_end.py` marks the vault dirty after direct session-end
+  memory writes, before the hook's sync attempt.
 
-**The consequence, plainly stated:** a fact captured today is immediately
-findable by keyword (`memory_search`, FTS5 — always current) but **semantically
-invisible** — absent from `vault_search`'s vector and hybrid results — until
-someone manually runs `python wiki\vault_vectors.py index`. Nothing schedules
-that command. If you want new knowledge to be reachable by paraphrase, not just
-by matching words, you have to run it yourself.
+### Remember-This contract
+
+The fact is immediately searchable through `memory_search`/FTS5. The
+synchronous percolation then makes the generated page current and updates the
+sidecar BM25/vector data when available. A successful result reports
+`page_state`, `lexical_current`, `index_state`, `index_configured`,
+`semantic_current`, and `index_reason` in addition to the fact and context
+identifiers.
+
+| Condition | Page state | Index state | Semantic state |
+|---|---|---|---|
+| Default with configured vectors | `rebuilt`, current | `indexed` | current |
+| `-NoIndex` or `LTM_VAULT_AUTOINDEX=0` | `rebuilt`, current | `disabled` | not current |
+| Vectors unconfigured or unavailable | `rebuilt`, current | `unavailable` | not current; the write succeeds |
+| Configured indexing fails or is partial | `rebuilt`, current | `failed` or `partial` | fact remains committed; the command throws and retains the dirty marker |
 
 ---
 
@@ -96,11 +103,10 @@ by matching words, you have to run it yourself.
   session-start hook can check it in under a millisecond instead of paying the
   ~1-2 s cost of shelling out to `az` on every session. Live scale measured
   today: **8,279 chunks across 648 pages** (`python wiki\vault_vectors.py
-  status`). **This degrades silently by design**: when the cached token has
-  expired, `embed()` returns `[]` rather than raising, and every caller falls
-  back to lexical search without a warning at query time. The only place you
-  are told is the next session start, and only if semantic search was ever
-  configured. Diagnose the state with:
+  status`). Semantic retrieval falls back to lexical search when the vector
+  layer is unavailable at query time. A configured indexing failure is
+  different: the synchronous `Remember-This` path surfaces it and retains the
+  dirty marker so the next sync can retry. Diagnose the state with:
   ```powershell
   python wiki\vault_vectors.py status
   az login
@@ -189,9 +195,9 @@ The day-to-day surface is typically one or two words.
 
 | Command | When you'd run it |
 |---|---|
-| `Remember-This -Content "..."` | Save a durable fact or preference now |
+| `Remember-This -Content "..."` | Save a durable fact or preference and synchronously percolate it through pages and the configured index |
 | `Search-Memory -Query "..."` | Find a fact by keyword — works even with no vault built |
-| `Sync-Vault` | Force the wiki to catch up with memory right now, instead of waiting for the next natural boundary |
+| `Sync-Vault` | Rebuild changed pages and auto-index them, instead of waiting for the next natural boundary |
 | `Export-MemoryContext` | Refresh `memory-context.md` — the bridge an agent reads at session start |
 | `Matrix-Load` | Pull shared memory into the *current* turn mid-session |
 
@@ -199,22 +205,17 @@ The day-to-day surface is typically one or two words.
 
 | Command | When you'd run it |
 |---|---|
-| `python wiki\vault_vectors.py index` | Make today's writes semantically searchable — **the only step that talks to Azure OpenAI**. Nothing schedules this; you decide when |
+| `python wiki\vault_vectors.py index` | Manually rebuild the semantic sidecar for maintenance or recovery; normal `Sync-Vault` runs this automatically |
 | `python wiki\vault_vectors.py index --contextual` | Same, prepending a deterministic "where this chunk lives" header before embedding. Now the recommended way to index — a 15-query GCC/Content-Understanding litmus improved Hit@1 **7/15 → 10/15** and MRR **0.56 → 0.75** with zero regressions. Reported by the vault owner on 2026-09-02; not independently reproduced for this README — rerun `ops\retrieval_bench.py --compare-vectors A.db B.db` to check it against your own corpus. The CLI flag itself still defaults to off (`action="store_true"`, no default), so pass it explicitly |
 | `python wiki\vault_vectors.py status` | Diagnose semantic search — sidecar size, chunk/page counts, whether `sqlite-vec` and an endpoint are configured |
 | `python ops\backfill_entity_mentions.py --dry-run` / `--apply` | Populate `related_facts` cross-links on a database that predates the entity-edge backfill (or never ran it). `--apply` backs up first |
 | `python ops\retrieval_bench.py --baseline OUT.json --paths vault_current --json` | Measure retrieval quality against the golden query set after a change to ranking, chunking, or the corpus |
 
-> ⚠️ **Back up the sidecar before any `index` operation.** `--limit-pages`
-> (added for smoke-testing on a large vault) used to treat every chunk outside
-> its limited page slice as stale and delete it — it wiped a live 619-page
-> index down to 33 pages in a session on 2026-09-02, costing roughly 40
-> minutes of re-embedding to recover. That specific defect is now fixed and
-> covered by a regression test
-> (`test_limited_index_preserves_out_of_scope_chunks`), but the sidecar is
-> excluded from git (`*.db` in `.gitignore`) and rebuilding costs real time and
-> a few cents — copy `vault-vectors.db` somewhere before a large rebuild
-> regardless of which flags you pass.
+> `--limit-pages N` is a scoped smoke-test run. The current implementation
+> updates only the selected pages and preserves out-of-scope chunks and BM25
+> rows, guarded by `test_limited_index_preserves_out_of_scope_chunks`. The
+> sidecar is excluded from git and broad rebuilds still take time, so an
+> external backup remains sensible for maintenance.
 
 ### Tests
 
@@ -225,9 +226,10 @@ python wiki\test_bootstrap.py
 python wiki\test_vault_mcp.py
 ```
 
-All three ran clean while writing this README: **265 tests** (`unittest
-discover`), plus the two standalone harnesses — `test_bootstrap.py` stands up
-empty / memory-only / full modes from nothing in a temp directory, and
+The commands above were validated from this checkout on 2026-09-03:
+**293 tests** (`unittest discover`), plus the two standalone harnesses —
+`test_bootstrap.py` stands up empty / memory-only / full modes from nothing in a
+temp directory, and
 `test_vault_mcp.py` drives the MCP server over real stdio JSON-RPC. Treat the
 live output as ground truth over any test count quoted in prose anywhere,
 including this file — the suite grows too fast for a written number to stay
@@ -289,16 +291,19 @@ database, no source workspace — a complete wiki: topics, entities, learnings,
 sessions), `full` (plus workspace documents, classified and imported
 alongside). Proven end to end by `wiki\test_bootstrap.py` in a temp directory.
 
-**Staying in sync.** `Add-Fact`, `Remember-This`, `Add-Topic`, `Add-Entity`,
-`Add-Snapshot` and `Set-Identity` all drop a dirty marker instantly; the
-rebuild itself runs at the next natural boundary — `Sync-Vault`,
-`Export-MemoryContext`, `Matrix-Load`, or the `sessionEnd` hook. This is stage
-2 of the pipeline above, and it still never embeds anything.
+**Staying in sync.** `Add-Fact`, `Add-Topic`, `Add-Entity`, `Add-Snapshot` and
+`Set-Identity` drop a dirty marker instantly; their rebuild runs at the next
+natural boundary — `Sync-Vault`, `Export-MemoryContext`, `Matrix-Load`, or the
+`sessionEnd` hook. `Remember-This` is the synchronous exception: it validates
+the batch, marks dirty, rebuilds pages, and waits for auto-indexing before it
+returns. `Sync-Vault` auto-indexes by default; use `-NoIndex` or
+`LTM_VAULT_AUTOINDEX=0` to keep the result lexical-only.
 
 ```powershell
 Sync-Vault           # incremental — memory + sessions (~7s)
 Sync-Vault -Full     # also rescan the source workspace (~10s)
 Sync-Vault -Status   # what would happen, changes nothing
+Sync-Vault -NoIndex  # rebuild pages without the semantic-index step
 ```
 
 > Incremental sync does **not** see new or changed workspace files. Run

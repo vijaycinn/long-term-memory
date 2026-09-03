@@ -214,22 +214,23 @@ the command above uses its required `-Name` parameter and the default
 
 ## 6. Optional — enable semantic search
 
-**The everyday loop needs no manual step, once this section is done.**
-`Sync-Vault` re-embeds every page it changes as part of its normal rebuild —
-capture a fact with `Remember-This`, run `Sync-Vault`, and it is semantically
-searchable in about 37 seconds, verified end to end
-(`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:398`; not re-run for this guide,
-since it requires writing a fact into the live `memory.db`, which this
-checklist does not touch). Skip that behavior with `Sync-Vault -NoIndex`, or
-permanently with `$env:LTM_VAULT_AUTOINDEX = '0'`, on a machine with no
-embedding endpoint configured (`memory.ps1:105-145`). Everything below this
-paragraph is the **one-time bootstrap** that makes that loop possible — you
-do the manual `vault_vectors.py index` walkthrough once, not every day.
+**The everyday loop needs no manual indexing step, once this section is done.**
+`Remember-This` commits the fact, validates its nested batch result, marks the
+vault dirty, rebuilds the generated pages, and waits for `Sync-Vault`'s
+auto-index step. With vectors configured, the updated page is also in sidecar
+BM25 and sqlite-vec before the command returns. Use `Remember-This -NoIndex` or
+`$env:LTM_VAULT_AUTOINDEX = '0'` for an intentional lexical-only result.
+Everything below is the **one-time bootstrap** for the optional semantic layer;
+manual `vault_vectors.py index` is now a maintenance/recovery command, not a
+daily requirement.
 
 Everything above gives you a working vault with **lexical** search. Semantic
-search is opt-in and gated on an endpoint being configured: without one, every
-retrieval path silently uses the lexical fallback and nothing warns you
-(`wiki\config.py` `has_embeddings`; `wiki\vault_mcp.py` `t_search`).
+search is opt-in and gated on `sqlite-vec` plus an embedding endpoint. Without
+that configuration, `Remember-This` reports `index_state = unavailable`,
+leaves the pages current, and succeeds with `semantic_current = false`.
+`-NoIndex` reports `disabled` instead. If a configured index fails or is
+partial, the fact remains committed, but `Remember-This` throws and leaves the
+dirty marker for retry.
 
 It is worth enabling. Measured on a 619-page vault
 (`docs\bench\PHASE2-GATE.md`): recall@5 rose from **0.370 to 0.556**, and the
@@ -248,22 +249,15 @@ az login
 python -c "import sys; sys.path.insert(0,'wiki'); import config; config.save(embed_endpoint='https://<your-resource>.cognitiveservices.azure.com', embed_deployment='text-embedding-3-small', embed_dimensions='512')"
 
 python wiki\vault_embed.py      # smoke test: prints the vector dimension
-python wiki\vault_vectors.py index
+python wiki\vault_vectors.py index       # optional maintenance/recovery
 python wiki\vault_vectors.py status
 ```
 
-> **Back up `vault-vectors.db` before any `index` operation, every time.**
-> `python wiki\vault_vectors.py index --limit-pages N` rebuilds destructively
-> rather than incrementally: on 2026-09-02 it wiped a live 619-page index down
-> to 33 pages in one run, costing roughly 40 minutes to re-embed and recover
-> (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:66`; `README.md:206-213`). It has
-> since been guarded and covered by a regression test
-> (`tests\test_vault_vectors.py:237`,
-> `test_limited_index_preserves_out_of_scope_chunks`), but a different way to
-> lose the sidecar is only ever a code change away — copy the file somewhere
-> before any indexing command regardless of which flags you pass. It is
-> excluded from git (`*.db` in `.gitignore`), so there is no recovery path
-> but a full, costly re-embed.
+> `python wiki\vault_vectors.py index --limit-pages N` is a scoped smoke-test
+> update. It preserves chunks and BM25 rows outside the selected page set,
+> guarded by `test_limited_index_preserves_out_of_scope_chunks`. The sidecar is
+> still excluded from git, so an external backup remains sensible for broad
+> maintenance.
 
 **Why 512 dimensions and not 1536.** `text-embedding-3-small` is a Matryoshka
 model, so the vector can be truncated with little quality loss — MTEB 61.6
@@ -337,12 +331,9 @@ python -W ignore::ResourceWarning -m unittest discover -s tests -p "test_*.py" -
 
 Healthy output ends with the greenfield bootstrap success message, the MCP
 test's response summary with zero problems, and `OK` from unittest discovery.
-Run live for this guide on 2026-09-02: bootstrap PASS, MCP test 9/9 OK, and
-**281 tests, OK** from unittest discovery. `CAPABILITIES.md:13` states 258 as
-of its own last edit — use the live unittest output over either written
-number; this repository's own README makes the identical point about its own
-count (`README.md:228-234`). The three commands are the repository's standard
-test sequence (`docs\IMPLEMENTATION-PLAN-retrieval-v4.md:87-92`).
+Validated from this checkout on 2026-09-03: bootstrap PASS, MCP test 9/9 OK,
+and **293 tests, OK** from unittest discovery. The three commands are the
+repository's standard test sequence.
 
 Then completely restart Copilot CLI. MCP servers and hooks load at session
 start, so the `vault` tools will not appear in the current session
