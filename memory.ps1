@@ -1,4 +1,4 @@
-# memory.ps1 — Long-term memory PowerShell module for Copilot agents.
+﻿# memory.ps1 — Long-term memory PowerShell module for Copilot agents.
 #
 # Usage: . .\memory.ps1
 #

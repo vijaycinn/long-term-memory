@@ -1,0 +1,399 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Long-Term Memory Dual-Engine & Sidecar Architecture",
+    "quality_profile": "showcase",
+    "output": "ltm-architecture.html",
+    "views": [
+      {
+        "id": "turn-zero",
+        "label": "Turn-Zero L1 Cache Path",
+        "focus": [
+          "remember",
+          "memory_db",
+          "bridge",
+          "context_md",
+          "copilot_cli"
+        ],
+        "note": "Pre-compiled L1 bridge loads in <5ms on session start with O(1) context ceiling."
+      },
+      {
+        "id": "offline-dual-engine",
+        "label": "Local Core & BM25 Sidecar",
+        "focus": [
+          "memory_db",
+          "sync_vault",
+          "vault_md",
+          "bm25_sidecar",
+          "vault_search"
+        ],
+        "note": "100% offline keyword and vault search with zero cloud or API dependency."
+      },
+      {
+        "id": "semantic-sidecar",
+        "label": "Hybrid Semantic Retrieval",
+        "focus": [
+          "vault_md",
+          "azure_ai",
+          "vector_db",
+          "bm25_sidecar",
+          "vault_search"
+        ],
+        "note": "Reciprocal Rank Fusion fuses local BM25 precision with Azure OpenAI vector embeddings."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "remember",
+      "type": "frontend",
+      "label": "Remember-This",
+      "sublabel": "Fact Ingestion",
+      "pos": [
+        60,
+        50
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "Write Path"
+    },
+    {
+      "id": "memory_db",
+      "type": "database",
+      "label": "memory.db",
+      "sublabel": "SQLite + FTS5",
+      "brand": "sqlite",
+      "pos": [
+        60,
+        180
+      ],
+      "size": [
+        140,
+        60
+      ],
+      "tag": "Primary Truth"
+    },
+    {
+      "id": "sync_vault",
+      "type": "backend",
+      "label": "Sync-Vault",
+      "sublabel": "Incremental Builder",
+      "pos": [
+        280,
+        50
+      ],
+      "size": [
+        140,
+        56
+      ]
+    },
+    {
+      "id": "bridge",
+      "type": "backend",
+      "label": "Memory Compiler",
+      "sublabel": "Fair Topic-Quota",
+      "pos": [
+        280,
+        180
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "24ms Query"
+    },
+    {
+      "id": "vault_md",
+      "type": "database",
+      "label": "Obsidian Vault",
+      "sublabel": "Markdown Pages",
+      "pos": [
+        500,
+        50
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "Live Graph"
+    },
+    {
+      "id": "context_md",
+      "type": "backend",
+      "label": "memory-context.md",
+      "sublabel": "L1 Prompt Bridge",
+      "pos": [
+        500,
+        180
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "<5ms Read"
+    },
+    {
+      "id": "copilot_cli",
+      "type": "external",
+      "label": "Copilot CLI",
+      "sublabel": "Agent Session",
+      "brand": "github",
+      "pos": [
+        500,
+        310
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "Turn Zero"
+    },
+    {
+      "id": "bm25_sidecar",
+      "type": "database",
+      "label": "Sidecar BM25",
+      "sublabel": "chunk_fts table",
+      "brand": "sqlite",
+      "pos": [
+        740,
+        30
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "16ms Offline"
+    },
+    {
+      "id": "azure_ai",
+      "type": "cloud",
+      "label": "Azure OpenAI",
+      "sublabel": "text-embedding-3",
+      "brand": "openai",
+      "pos": [
+        740,
+        140
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "512-dim"
+    },
+    {
+      "id": "vector_db",
+      "type": "database",
+      "label": "vault-vectors.db",
+      "sublabel": "sqlite-vec sidecar",
+      "brand": "sqlite",
+      "pos": [
+        740,
+        250
+      ],
+      "size": [
+        140,
+        56
+      ],
+      "tag": "KNN Embeddings"
+    },
+    {
+      "id": "vault_search",
+      "type": "backend",
+      "label": "vault_search MCP",
+      "sublabel": "Hybrid RRF Fusion",
+      "pos": [
+        960,
+        140
+      ],
+      "size": [
+        140,
+        60
+      ],
+      "tag": "BM25 + Vector"
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Local Developer Machine (Zero Cloud Dependency & Offline Resilient)",
+      "wraps": [
+        "remember",
+        "copilot_cli",
+        "memory_db",
+        "bridge",
+        "context_md",
+        "sync_vault",
+        "vault_md",
+        "bm25_sidecar",
+        "vector_db",
+        "vault_search"
+      ]
+    },
+    {
+      "kind": "security-group",
+      "label": "Sub-5ms Turn-Zero Injection Ring",
+      "wraps": [
+        "bridge",
+        "context_md",
+        "copilot_cli"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "remember-to-db",
+      "from": "remember",
+      "to": "memory_db",
+      "label": "commit fact",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 22
+    },
+    {
+      "id": "remember-to-sync",
+      "from": "remember",
+      "to": "sync_vault",
+      "label": "sync trigger",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "sync-to-vault",
+      "from": "sync_vault",
+      "to": "vault_md",
+      "label": "rebuild",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "db-to-bridge",
+      "from": "memory_db",
+      "to": "bridge",
+      "label": "fair quota",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDx": 15,
+      "labelDy": -18
+    },
+    {
+      "id": "bridge-to-context",
+      "from": "bridge",
+      "to": "context_md",
+      "label": "compile L1",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "context-to-cli",
+      "from": "context_md",
+      "to": "copilot_cli",
+      "label": "<5ms load",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 22
+    },
+    {
+      "id": "vault-to-bm25",
+      "from": "vault_md",
+      "to": "bm25_sidecar",
+      "label": "index text",
+      "fromSide": "right",
+      "toSide": "left",
+      "labelDy": -15,
+      "labelDx": 20
+    },
+    {
+      "id": "vault-to-azure",
+      "from": "vault_md",
+      "to": "azure_ai",
+      "label": "chunk hash",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "azure-to-vector",
+      "from": "azure_ai",
+      "to": "vector_db",
+      "label": "store vectors",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "labelDy": 20
+    },
+    {
+      "id": "bm25-to-search",
+      "from": "bm25_sidecar",
+      "to": "vault_search",
+      "label": "rank BM25",
+      "fromSide": "right",
+      "toSide": "top"
+    },
+    {
+      "id": "vector-to-search",
+      "from": "vector_db",
+      "to": "vault_search",
+      "label": "rank vectors",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "search-to-cli",
+      "from": "vault_search",
+      "to": "copilot_cli",
+      "label": "on-demand pull",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "right",
+      "via": [
+        [
+          1030,
+          380
+        ],
+        [
+          680,
+          380
+        ],
+        [
+          680,
+          338
+        ]
+      ],
+      "labelDy": 14
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Sub-5ms Turn-Zero Memory (L1 Cache)",
+      "items": [
+        "Fair Topic-Quota compiler enforces an O(1) context ceiling (max 40 facts / ~1.5k tokens)",
+        "Pre-compiled L1 bridge loads in under 5 ms without blocking startup or burning extra tokens",
+        "Eliminates cold-start amnesia and prevents noisy topics from crowding out critical rules"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Local Dual-Engine & Offline Resilience",
+      "items": [
+        "Primary memory.db is 100% local SQLite + FTS5 with zero external dependencies",
+        "Derivative sidecar BM25 indexes chunks locally for instant exact-keyword hits (16ms)",
+        "Fully functional offline without cloud connectivity, API tokens, or pip installs"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "Hybrid Semantic Retrieval (L2 Store)",
+      "items": [
+        "Azure OpenAI text-embedding-3-small generates 512-dim vectors into sqlite-vec",
+        "Sidecar database stays decoupled from memory.db to prevent backup bloat",
+        "Reciprocal Rank Fusion (RRF) blends keyword precision with conceptual semantic search"
+      ]
+    }
+  ]
+}
